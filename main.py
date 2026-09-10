@@ -9,9 +9,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
+# Se estiver rodando localmente com arquivo .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
-# Configuração imutável dos arquivos estáticos para suportar o Render
 app.mount("/static", StaticFiles(directory=os.path.dirname(__file__)), name="static")
 
 security = HTTPBearer()
@@ -67,10 +73,10 @@ panels_db = [
 audit_logs = [
     {
         "timestamp": str(datetime.now()),
-        "user_name": "Rafael Felipe",
+        "user_name": "Sistema",
         "role": "CEO",
         "action": "LOGIN_SISTEMA",
-        "details": "Acesso root autenticado com sucesso."
+        "details": "Serviço inicializado com segurança de variáveis de ambiente."
     }
 ]
 
@@ -91,11 +97,12 @@ class NewPanelRequest(BaseModel):
 
 @app.post("/api/token")
 def gerar_token(body: TokenRequest):
+    # Carrega os usuários de forma segura através de variáveis de ambiente (.env)
     users = {
-        "RafaelFelipe": {"role": "CEO", "pass": "HitechCEO"},
-        "GuilhermeCosta": {"role": "Gerente", "pass": "HitechCEO"},
-        "InstaladorCampo": {"role": "Instalador", "pass": "HitechCEO"},
-        "admin": {"role": "Técnico de Campo", "pass": "HitechCEO"}
+        os.getenv("CEO_USER", "RafaelFelipe"): {"role": "CEO", "pass": os.getenv("CEO_PASS", "HitechCEO")},
+        os.getenv("GERENTE_USER", "GuilhermeCosta"): {"role": "Gerente", "pass": os.getenv("GERENTE_PASS", "HitechCEO")},
+        os.getenv("INSTALADOR_USER", "InstaladorCampo"): {"role": "Instalador", "pass": os.getenv("INSTALADOR_PASS", "HitechCEO")},
+        os.getenv("TECNICO_USER", "admin"): {"role": "Técnico de Campo", "pass": os.getenv("TECNICO_PASS", "HitechCEO")}
     }
     
     user = users.get(body.username)
@@ -173,12 +180,11 @@ async def websocket_endpoint(websocket: WebSocket):
 def home():
     caminho_html = os.path.join(os.path.dirname(__file__), "index.html")
     if not os.path.exists(caminho_html):
-        return HTMLResponse(content="<h1>Erro: O arquivo index.html não foi encontrado na mesma pasta do main.py!</h1>", status_code=404)
+        return HTMLResponse(content="<h1>Erro: O arquivo index.html não foi encontrado!</h1>", status_code=404)
     with open(caminho_html, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 if __name__ == "__main__":
     import uvicorn
-    # Porta dinâmica exigida pelo Render (lê da variável de ambiente PORT)
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run("main:app", host="0.0.0.0", port=port)

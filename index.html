@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>HITECH VoltGuard - SCADA Enterprise</title>
-    <!-- Biblioteca JavaScript para leitura de QR Code via câmera -->
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <style>
         body {
@@ -119,12 +118,12 @@
         <p class="sub">SCADA Enterprise Edition</p>
         <form id="login-form" onsubmit="realizarLogin(event)">
             <div class="input-group">
-                <label>Usuário (RafaelFelipe, GuilhermeCosta ou InstaladorCampo)</label>
-                <input type="text" id="usuario" value="InstaladorCampo" required>
+                <label>Usuário Corporativo</label>
+                <input type="text" id="usuario" placeholder="Digite seu usuário" required>
             </div>
             <div class="input-group">
                 <label>Senha</label>
-                <input type="password" id="senha" value="HitechCEO" required>
+                <input type="password" id="senha" placeholder="••••••••" required>
             </div>
             <button type="submit" class="btn-primary">Entrar no Sistema</button>
             <div id="error-msg"></div>
@@ -151,8 +150,8 @@
                 <span>Inteligência Preditiva e Governança Industrial</span>
             </div>
             <div class="user-info">
-                <span>Usuário: <strong id="user-display">Instalador Campo</strong></span>
-                <span class="badge-cargo" id="cargo-display">Instalador</span>
+                <span>Usuário: <strong id="user-display">-</strong></span>
+                <span class="badge-cargo" id="cargo-display">-</span>
                 <button class="btn-logout" onclick="location.reload()">Sair</button>
             </div>
         </div>
@@ -164,8 +163,8 @@
 
     <script>
         let currentTab = 'realtime';
-        let currentUser = 'InstaladorCampo';
-        let currentCargo = 'Instalador';
+        let currentUser = '';
+        let currentCargo = '';
         let dadosGlobais = {};
         let auditLogs = [];
         let painelAlvo = null;
