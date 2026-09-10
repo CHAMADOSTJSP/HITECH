@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-# Se estiver rodando localmente com arquivo .env
+# Carrega variáveis de ambiente localmente se o arquivo .env existir
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -18,6 +18,7 @@ except ImportError:
 
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
+# Montagem estática para carregar imagens e assets corporativos
 app.mount("/static", StaticFiles(directory=os.path.dirname(__file__)), name="static")
 
 security = HTTPBearer()
@@ -97,7 +98,7 @@ class NewPanelRequest(BaseModel):
 
 @app.post("/api/token")
 def gerar_token(body: TokenRequest):
-    # Carrega os usuários de forma segura através de variáveis de ambiente (.env)
+    # Credenciais obtidas de forma segura via variáveis de ambiente (.env ou painel Render)
     users = {
         os.getenv("CEO_USER", "RafaelFelipe"): {"role": "CEO", "pass": os.getenv("CEO_PASS", "HitechCEO")},
         os.getenv("GERENTE_USER", "GuilhermeCosta"): {"role": "Gerente", "pass": os.getenv("GERENTE_PASS", "HitechCEO")},
