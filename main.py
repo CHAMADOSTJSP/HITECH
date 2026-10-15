@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import jwt
@@ -53,6 +54,14 @@ class AuditLogModel(Base):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
+
+# Rota direta para servir a logo localizada na raiz do repositório
+@app.get("/logo.jpg")
+def get_logo():
+    logo_path = "logo.jpg"
+    if os.path.exists(logo_path):
+        return FileResponse(logo_path)
+    raise HTTPException(status_code=404, detail="Logo não encontrada.")
 
 def get_db():
     db = SessionLocal()
