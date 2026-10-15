@@ -55,7 +55,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
-# Montar pasta estática para logos e assets
+# Montar pasta estática para garantir o carregamento do logo.jpg
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -86,7 +86,7 @@ def init_db():
 
 init_db()
 
-# Usuários Corporativos Padrão (Credenciais validadas de forma direta e segura)
+# Usuários Corporativos Padrão
 USERS_DB = {
     "RafaelFelipe": {"password": "123456", "role": "CEO"},
     "GerenteCarlos": {"password": "123456", "role": "Gerente"},
