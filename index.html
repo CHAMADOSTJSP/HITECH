@@ -264,231 +264,25 @@
             }
         }
 
-        async function iniciarConexao(token) {
-            try {
-                const res = await fetch('/api/panels', {headers: {'Authorization': `Bearer ${token}`}});
-                if(res.ok) {
-                    const data = await res.json();
-                    processarDados(data.panels, data.audit_logs);
-                }
-            } catch(err) {
-                console.error("Erro ao buscar dados iniciais:", err);
-            }
+        function iniciarConexao(token) {
+            // Busca inicial dos dados via HTTP REST
+            fetch('/api/panels', {headers: {'Authorization': `Bearer ${token}`}})
+                .then(res => res.json())
+                .then(data => {
+                    if(data.panels) processarDados(data.panels, data.audit_logs);
+                })
+                .catch(err => console.error("Erro ao buscar dados iniciais:", err));
 
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
-            const ws = new WebSocket(wsUrl);
+            // Conexão WebSocket com reconexão automática resiliente
+            function conectarWS() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
+                const ws = new WebSocket(wsUrl);
 
-            ws.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                processarDados(data.panels, data.audit_logs);
-            };
-        }
-
-        function processarDados(panels, logs) {
-            auditLogs = logs || [];
-            dadosGlobais = {};
-            panels.forEach(p => { dadosGlobais[p.id] = p; });
-            renderizar();
-        }
-
-        function mudarAba(aba) {
-            if (currentTab === 'commission' && aba !== 'commission') {
-                pararLeitorQR();
-            }
-            currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit'].forEach(t => {
-                const el = document.getElementById(`t-${t}`);
-                if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
-            });
-            renderizar();
-        }
-
-        function solicitarAssinaturaNR10(id) {
-            painelAlvo = id;
-            document.getElementById('pin-input').value = '';
-            document.getElementById('modal-error').style.display = 'none';
-            document.getElementById('modal-overlay').style.display = 'flex';
-        }
-
-        function fecharModal() { document.getElementById('modal-overlay').style.display = 'none'; }
-
-        async function validarPinNR10() {
-            const pin = document.getElementById('pin-input').value.trim();
-            const errorEl = document.getElementById('modal-error');
-            try {
-                const res = await fetch('/api/validate-nr10-pin', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                    body: JSON.stringify({panel_id: painelAlvo, pin: pin})
-                });
-                if(!res.ok) throw new Error();
-                fecharModal();
-                dadosGlobais[painelAlvo].assigned_to = formatarNome(currentUser);
-                alert("Assinatura NR-10 validada com sucesso!");
-                renderizar();
-            } catch {
-                errorEl.style.display = 'block';
-            }
-        }
-
-        function abrirLeitorQR() {
-            const readerDiv = document.getElementById('reader');
-            readerDiv.style.display = 'block';
-            
-            if (!html5QrCode) {
-                html5QrCode = new Html5Qrcode("reader");
-            }
-            
-            html5QrCode.start(
-                { facingMode: "environment" }, 
-                { fps: 10, qrbox: 220 },
-                (decodedText, decodedResult) => {
-                    document.getElementById('reg-qr').value = decodedText;
-                    pararLeitorQR();
-                },
-                (errorMessage) => {}
-            ).catch(err => {
-                alert("Erro ao acessar a câmera do celular: " + err);
-                readerDiv.style.display = 'none';
-            });
-        }
-
-        function pararLeitorQR() {
-            if (html5QrCode) {
-                html5QrCode.stop().then(() => {
-                    const readerDiv = document.getElementById('reader');
-                    if(readerDiv) readerDiv.style.display = 'none';
-                }).catch(() => {
-                    const readerDiv = document.getElementById('reader');
-                    if(readerDiv) readerDiv.style.display = 'none';
-                });
-            } else {
-                const readerDiv = document.getElementById('reader');
-                if(readerDiv) readerDiv.style.display = 'none';
-            }
-        }
-
-        async function registrarNovoPainel(event) {
-            event.preventDefault();
-            pararLeitorQR();
-            const payload = {
-                panel_id: document.getElementById('reg-id').value.trim(),
-                name: document.getElementById('reg-name').value.trim(),
-                location: document.getElementById('reg-location').value.trim(),
-                voltage: document.getElementById('reg-voltage').value.trim(),
-                gateway_qr: document.getElementById('reg-qr').value.trim()
-            };
-
-            try {
-                const res = await fetch('/api/panels/register', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                    body: JSON.stringify(payload)
-                });
-                const respData = await res.json();
-                if(!res.ok) throw new Error(respData.detail || 'Erro ao registrar');
-                
-                alert("Cubículo elétrico integrado e comissionado com sucesso na nuvem!");
-                mudarAba('realtime');
-            } catch (err) {
-                alert("Falha no comissionamento: " + err.message);
-            }
-        }
-
-        function renderizar() {
-            const container = document.getElementById('main-container');
-            const lista = Object.values(dadosGlobais);
-
-            if (currentTab === 'commission' && (currentCargo === 'Instalador' || currentCargo === 'CEO')) {
-                if (!document.getElementById('form-comission')) {
-                    container.innerHTML = `
-                        <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px;">
-                            <h3 style="color:#10b981; margin-top:0;">Comissionamento de Novo Cubículo em Campo</h3>
-                            <p style="font-size:12px; color:#9ca3af; margin-bottom:20px;">Utilize este assistente para cadastrar um cubículo elétrico recém-entregue pela Hitech. Escaneie o QR Code do gateway interno e preencha os dados de instalação:</p>
-                            <form id="form-comission" onsubmit="registrarNovoPainel(event)" style="max-width: 500px;">
-                                <div class="input-group">
-                                    <label>ID do Painel (Ex: PANEL-04)</label>
-                                    <input type="text" id="reg-id" placeholder="PANEL-04" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Nome Descritivo do Equipamento</label>
-                                    <input type="text" id="reg-name" placeholder="Cubículo de Distribuição Setor C" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Localização Física na Fábrica do Cliente</label>
-                                    <input type="text" id="reg-location" placeholder="Galpão 2 - Ala Norte" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Classe de Tensão</label>
-                                    <input type="text" id="reg-voltage" placeholder="380V AC ou 13.8 kV" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Código QR do Gateway IoT</label>
-                                    <div style="display: flex; gap: 5px;">
-                                        <input type="text" id="reg-qr" placeholder="QR-GW-9920" required>
-                                        <button type="button" class="btn-action" onclick="abrirLeitorQR()">📸 Ler QR</button>
-                                    </div>
-                                    <div id="reader" style="width: 100%; max-width: 300px; margin-top: 10px; display: none;"></div>
-                                </div>
-                                <button type="submit" class="btn-primary" style="margin-top:10px;">Validar Modbus e Registrar na Nuvem</button>
-                            </form>
-                        </div>
-                    `;
-                }
-                return;
-            }
-
-            if (currentTab === 'realtime') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>${p.id} - ${p.name}</h3>
-                        <p><strong>Local:</strong> ${p.location}</p>
-                        <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
-                        <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
-                        <p><strong>Gateway QR:</strong> ${p.gateway_qr || 'N/A'}</p>
-                        <p><strong>Status:</strong> ${p.status}</p>
-                    </div>
-                `).join('');
-            } else if (currentTab === 'predictive') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card">
-                        <h3>🤖 Previsão IA - ${p.id}</h3>
-                        <p><strong>Componente Crítico:</strong> ${p.component}</p>
-                        <p><strong>Falha Estimada por IA em:</strong> <span style="color:${p.predictive_failure_hours < 30 ? '#ef4444':'#10b981'}">${p.predictive_failure_hours} horas</span></p>
-                        <p><strong>Diagnóstico Preditivo:</strong> ${p.recommendation}</p>
-                    </div>
-                `).join('');
-            } else if (currentTab === 'esg') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card">
-                        <h3>🌱 Sustentabilidade - ${p.id}</h3>
-                        <p><strong>Equipamento:</strong> ${p.name}</p>
-                        <p><strong>Perdas Energéticas Atuais:</strong> ${p.esg_waste_kwh} kWh/dia</p>
-                        <p style="color:#10b981; font-weight:bold; margin-top:10px;">Status de Emissão: Otimizado dentro das normas ESG.</p>
-                    </div>
-                `).join('');
-            } else if (currentTab === 'orders') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>O.S. - ${p.id}</h3>
-                        <p><strong>Equipamento:</strong> ${p.name}</p>
-                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Não atribuído'}</p>
-                        <div class="action-box">
-                            ${!p.assigned_to && currentCargo === 'Técnico de Campo' ? `<button class="btn-action" onclick="solicitarAssinaturaNR10('${p.id}')">Assumir com Assinatura NR-10</button>` : ''}
-                        </div>
-                    </div>
-                `).join('');
-            } else if (currentTab === 'audit' && currentCargo === 'CEO') {
-                container.innerHTML = `<div style="grid-column: 1/-1;">
-                    <h3 style="color:#10b981; margin-bottom:15px;">Log de Auditoria Corporativa Imutável</h3>
-                    <table class="enterprise-table">
-                        <tr><th>Data/Hora</th><th>Usuário</th><th>Cargo</th><th>Ação do Sistema</th><th>Detalhes</th></tr>
-                        ${auditLogs.map(l => `<tr><td>${l.timestamp.split('.')[0]}</td><td>${l.user_name}</td><td>${l.role}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('')}
-                    </table>
-                </div>`;
-            }
-        }
-    </script>
-</body>
-</html>
+                ws.onmessage = (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        if(data.panels) {
+                            processarDados(data.panels, data.audit_logs);
+                        }
+                    }
