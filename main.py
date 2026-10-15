@@ -50,9 +50,17 @@ class AuditLogModel(Base):
     action = Column(String, nullable=False)
     details = Column(String, nullable=False)
 
+class TenantSubscriptionModel(Base):
+    __tablename__ = "subscriptions"
+    tenant_id = Column(String, primary_key=True, index=True)
+    plan_name = Column(String, default="Enterprise")
+    status = Column(String, default="ACTIVE")
+    expires_at = Column(DateTime, default=datetime.utcnow() + timedelta(days=365))
+    max_panels = Column(Integer, default=10)
+
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Live Telemetry")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - SaaS Billing Edition")
 
 @app.get("/logo.jpg")
 def get_logo():
@@ -78,7 +86,8 @@ def init_db():
                 PanelModel(id="PANEL-03", tenant_id="HITECH-DEFAULT", name="Painel de Bombeamento / Incessor", location="Casa de Bombas / Saneamento", voltage="380V AC", current=530.94, temperature=65.12, gateway_qr="QR-GW-1104", status="NORMAL", component="Inversores de Frequência", predictive_failure_hours=210, recommendation="Filtros de harmônicas limpos e operacionais.", esg_waste_kwh=1.1)
             ]
             db.add_all(initial_panels)
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema SaaS iniciado."))
+            db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="SaaS Billing Edition inicializado."))
             db.commit()
     finally:
         db.close()
@@ -117,14 +126,13 @@ def login(credentials: dict):
 def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
-        
-        # Atualiza a telemetria ao vivo a cada requisição de polling para garantir dinamismo
         for p in panels:
             p.current = round(max(10.0, p.current + random.uniform(-1.2, 1.2)), 2)
             p.temperature = round(max(20.0, p.temperature + random.uniform(-0.3, 0.3)), 2)
         db.commit()
 
         logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
+        sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
         
         panels_data = [{
             "id": p.id, "name": p.name, "location": p.location, "voltage": p.voltage,
@@ -138,7 +146,14 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
             "action": l.action, "details": l.details
         } for l in logs]
         
-        return {"panels": panels_data, "audit_logs": logs_data, "tenant_id": current_user.tenant_id, "plan": current_user.plan}
+        billing_info = {
+            "plan_name": sub.plan_name if sub else "Enterprise",
+            "status": sub.status if sub else "ACTIVE",
+            "expires_at": str(sub.expires_at) if sub else "2027-10-15",
+            "max_panels": sub.max_panels if sub else 25
+        }
+
+        return {"panels": panels_data, "audit_logs": logs_data, "tenant_id": current_user.tenant_id, "billing": billing_info}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -153,6 +168,23 @@ def export_audit_csv(db: Session = Depends(get_db), current_user: User = Depends
         output.write(f"{l.id},{l.timestamp},{l.user_name},{l.role},{l.action},\"{l.details}\"\n")
     output.seek(0)
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=audit_{current_user.tenant_id}.csv"})
+
+@app.post("/api/tenant/upgrade-plan")
+def upgrade_plan(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "CEO":
+        raise HTTPException(status_code=403, detail="Apenas o CEO pode alterar o plano de assinatura.")
+    
+    new_plan = data.get("plan_name", "Enterprise")
+    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+    if not sub:
+        sub = TenantSubscriptionModel(tenant_id=current_user.tenant_id)
+        db.add(sub)
+    
+    sub.plan_name = new_plan
+    sub.max_panels = 50 if new_plan == "Enterprise" else 10
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="BILLING_UPGRADE", details=f"Plano alterado para {new_plan}."))
+    db.commit()
+    return {"status": "success", "message": f"Assinatura atualizada para o plano {new_plan} com sucesso!"}
 
 @app.post("/api/alerts/dispatch")
 def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
