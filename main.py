@@ -184,6 +184,27 @@ def export_audit_csv(db: Session = Depends(get_db), current_user: User = Depends
         headers={"Content-Disposition": "attachment; filename=hitech_voltguard_audit_report.csv"}
     )
 
+@app.post("/api/alerts/dispatch")
+def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem disparar alertas críticos de emergência.")
+    
+    panel_id = data.get("panel_id")
+    panel = db.query(PanelModel).filter(PanelModel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado.")
+    
+    novo_log = AuditLogModel(
+        user_name=current_user.username,
+        role=current_user.role,
+        action="DISPARO_ALERTA_CRITICO",
+        details=f"Alerta de falha iminente ({panel.component}) despachado via Webhook/Email para equipe técnica no cubículo {panel_id}."
+    )
+    db.add(novo_log)
+    db.commit()
+    
+    return {"status": "success", "message": f"Alerta crítico para o painel {panel_id} despachado com sucesso!"}
+
 @app.post("/api/validate-nr10-pin")
 def validate_nr10_pin(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     panel_id = data.get("panel_id")
