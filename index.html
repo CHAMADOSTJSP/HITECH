@@ -176,6 +176,7 @@
                 html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
                 html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
                 html += `<button class="tab-btn" id="t-executive" onclick="mudarAba('executive')">📈 Relatório Executivo</button>`;
+                html += `<button class="tab-btn" id="t-webhooks" onclick="mudarAba('webhooks')">🔔 Webhooks & Notificações</button>`;
             }
             document.getElementById('nav-tabs-container').innerHTML = html;
         }
@@ -220,7 +221,7 @@
         function mudarAba(aba) {
             if (currentTab === 'commission' && aba !== 'commission') pararLeitor();
             currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing', 'executive'].forEach(t => {
+            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing', 'executive', 'webhooks'].forEach(t => {
                 const el = document.getElementById(`t-${t}`);
                 if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
             });
@@ -235,6 +236,18 @@
             });
             const d = await res.json();
             if(res.ok) { alert(d.message); } else { alert("Erro ao atualizar plano."); }
+        }
+
+        async function salvarWebhook(event) {
+            event.preventDefault();
+            const url = document.getElementById('webhook-url-input').value.trim();
+            const res = await fetch('/api/tenant/webhook', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({webhook_url: url})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); } else { alert("Erro ao salvar webhook."); }
         }
 
         async function baixarRelatorioExecutivo() {
@@ -300,6 +313,22 @@
         function renderizar() {
             const container = document.getElementById('main-container');
             const lista = Object.values(dadosGlobais);
+
+            if (currentTab === 'webhooks' && currentCargo === 'CEO') {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px;">
+                        <h3 style="color:#10b981; margin-top:0;">🔔 Configuração de Webhooks para Notificações</h3>
+                        <p style="font-size:13px; color:#d1d5db;">Insira a URL de API do WhatsApp ou Telegram da sua equipe de plantão para envio instantâneo de alertas críticos de falha iminente.</p>
+                        <form onsubmit="salvarWebhook(event)" style="margin-top: 15px;">
+                            <div class="input-group">
+                                <label>Endpoint URL do Webhook</label>
+                                <input type="text" id="webhook-url-input" value="${billingData.webhook_url || ''}" placeholder="https://api.whatsapp.com/send?phone=..." required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="margin-top: 10px;">Guardar Configuração de Webhook</button>
+                        </form>
+                    </div>`;
+                return;
+            }
 
             if (currentTab === 'executive' && currentCargo === 'CEO') {
                 container.innerHTML = `
