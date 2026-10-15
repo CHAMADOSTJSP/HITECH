@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import jwt
@@ -54,13 +53,6 @@ class AuditLogModel(Base):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
-
-# Caminho absoluto seguro para servir assets estáticos no Render
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-
-if os.path.exists(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 def get_db():
     db = SessionLocal()
