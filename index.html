@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>HITECH VoltGuard - SCADA Enterprise</title>
+    <title>HITECH VoltGuard - SCADA Enterprise SaaS</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" type="text/javascript"></script>
     <style>
         body {
@@ -53,6 +53,10 @@
         .badge-cargo {
             background: #047857; color: #ffffff; border: 1px solid #34d399;
             padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase;
+        }
+        .badge-tenant {
+            background: #1e3a8a; color: #93c5fd; border: 1px solid #3b82f6;
+            padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: bold;
         }
         .btn-logout {
             background: #ef4444; border: none; color: #fff; padding: 6px 12px;
@@ -115,7 +119,7 @@
 
     <div id="login-screen">
         <h2>HITECH VoltGuard</h2>
-        <p class="sub">SCADA Enterprise Edition</p>
+        <p class="sub">SCADA Enterprise SaaS</p>
         <div class="input-group">
             <label>Usuário Corporativo</label>
             <input type="text" id="usuario" placeholder="Ex: RafaelFelipe" value="RafaelFelipe">
@@ -124,7 +128,7 @@
             <label>Senha</label>
             <input type="password" id="senha" placeholder="••••••••" value="123456">
         </div>
-        <button type="button" class="btn-primary" onclick="realizarLoginDireto()">Entrar no Sistema</button>
+        <button type="button" class="btn-primary" onclick="realizarLoginDireto()">Acessar Plataforma SaaS</button>
         <div id="error-msg"></div>
     </div>
 
@@ -145,9 +149,10 @@
         <div class="dash-header">
             <div>
                 <h1>HITECH VoltGuard SCADA Enterprise</h1>
-                <span>Inteligência Preditiva e Governança Industrial</span>
+                <span id="tenant-subtitle">Plataforma Multi-Tenant SaaS Industrial</span>
             </div>
             <div class="user-info">
+                <span class="badge-tenant" id="tenant-display">-</span>
                 <span>Usuário: <strong id="user-display">-</strong></span>
                 <span class="badge-cargo" id="cargo-display">-</span>
                 <button class="btn-logout" onclick="location.reload()">Sair</button>
@@ -168,6 +173,7 @@
         let painelAlvo = null;
         let tokenJwt = '';
         let html5QrCode = null;
+        let pollingInterval = null;
 
         function formatarNome(nome) { return nome.replace(/([a-z])([A-Z])/g, '$1 $2'); }
 
@@ -186,7 +192,7 @@
             }
 
             errorEl.style.color = "#facc15";
-            errorEl.innerText = "A autenticar no sistema...";
+            errorEl.innerText = "A autenticar no SaaS...";
 
             try {
                 const res = await fetch('/api/token', {
@@ -196,9 +202,7 @@
                 });
                 
                 const data = await res.json();
-                if(!res.ok) {
-                    throw new Error(data.detail || "Erro nas credenciais de acesso.");
-                }
+                if(!res.ok) throw new Error(data.detail || "Erro nas credenciais.");
 
                 tokenJwt = data.access_token;
                 localStorage.setItem('token', tokenJwt);
@@ -213,35 +217,28 @@
 
                 construirAbas();
                 atualizarKPIs();
-                iniciarConexao(tokenJwt);
+                iniciarSincronizacao(tokenJwt);
             } catch (err) {
                 errorEl.style.color = "#ef4444";
-                errorEl.innerText = "Erro: " + (err.message || "Falha na comunicação com o servidor.");
+                errorEl.innerText = "Erro: " + (err.message || "Falha na comunicação.");
             }
         }
 
         function construirAbas() {
             let html = `<button class="tab-btn active" id="t-realtime" onclick="mudarAba('realtime')">📊 Monitoramento em Tempo Real</button>`;
-            
             if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
                 html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">🤖 IA Preditiva & Saúde</button>`;
                 html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 Eficiência Energética (ESG)</button>`;
             }
-            
-            if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
-                html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Supervisão de O.S.</button>`;
-            } else if (currentCargo === 'Técnico de Campo') {
+            if (currentCargo === 'CEO' || currentCargo === 'Gerente' || currentCargo === 'Técnico de Campo') {
                 html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Ordens de Serviço</button>`;
             }
-            
             if (currentCargo === 'Instalador' || currentCargo === 'CEO') {
-                html += `<button class="tab-btn" id="t-commission" onclick="mudarAba('commission')">🛠️ Comissionamento em Campo</button>`;
+                html += `<button class="tab-btn" id="t-commission" onclick="mudarAba('commission')">🛠️ Comissionamento</button>`;
             }
-            
             if (currentCargo === 'CEO') {
                 html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria Corporativa</button>`;
             }
-            
             document.getElementById('nav-tabs-container').innerHTML = html;
         }
 
@@ -264,38 +261,23 @@
             }
         }
 
-        function iniciarConexao(token) {
-            fetch('/api/panels', {headers: {'Authorization': `Bearer ${token}`}})
-                .then(res => res.json())
-                .then(data => {
-                    if(data.panels) processarDados(data.panels, data.audit_logs);
-                })
-                .catch(err => console.error("Erro ao buscar dados iniciais:", err));
-
-            function conectarWS() {
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
-                const ws = new WebSocket(wsUrl);
-
-                ws.onmessage = (e) => {
-                    try {
-                        const data = JSON.parse(e.data);
+        function iniciarSincronizacao(token) {
+            if (pollingInterval) clearInterval(pollingInterval);
+            
+            function buscarDados() {
+                fetch('/api/panels', {headers: {'Authorization': `Bearer ${token}`}})
+                    .then(res => res.json())
+                    .then(data => {
                         if(data.panels) {
+                            document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${data.plan})`;
                             processarDados(data.panels, data.audit_logs);
                         }
-                    } catch (err) {}
-                };
-
-                ws.onclose = () => {
-                    setTimeout(conectarWS, 3000);
-                };
-
-                ws.onerror = () => {
-                    ws.close();
-                };
+                    })
+                    .catch(err => console.error("Erro na sincronização síncrona:", err));
             }
 
-            conectarWS();
+            buscarDados();
+            pollingInterval = setInterval(buscarDados, 3000);
         }
 
         function processarDados(panels, logs) {
@@ -335,39 +317,31 @@
                     headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
                     body: JSON.stringify({panel_id: painelAlvo, pin: pin})
                 });
-                
                 const respData = await res.json();
                 if(!res.ok) throw new Error(respData.detail || "Erro na validação.");
                 
                 fecharModal();
-                alert("Assinatura NR-10 validada e gravada na auditoria com sucesso!");
-                
-                const r = await fetch('/api/panels', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
-                const d = await r.json();
-                if(d.panels) processarDados(d.panels, d.audit_logs);
+                alert("Assinatura NR-10 validada com sucesso!");
             } catch (err) {
-                errorEl.innerText = err.message || "PIN incorreto! Tente novamente (1010).";
+                errorEl.innerText = err.message || "PIN incorreto (1010).";
                 errorEl.style.display = 'block';
             }
         }
 
         async function baixarRelatorioCSV() {
             try {
-                const res = await fetch('/api/export/audit-csv', {
-                    headers: {'Authorization': `Bearer ${tokenJwt}`}
-                });
-                if(!res.ok) throw new Error("Falha ao gerar relatório.");
-                
+                const res = await fetch('/api/export/audit-csv', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
+                if(!res.ok) throw new Error("Falha ao exportar relatório.");
                 const blob = await res.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = "hitech_voltguard_audit_report.csv";
+                a.download = "hitech_audit_report.csv";
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
             } catch (err) {
-                alert("Erro ao exportar relatório: " + err.message);
+                alert("Erro ao exportar CSV: " + err.message);
             }
         }
 
@@ -389,37 +363,20 @@
         function abrirLeitorQR() {
             const readerDiv = document.getElementById('reader');
             readerDiv.style.display = 'block';
-            
-            if (!html5QrCode) {
-                html5QrCode = new Html5Qrcode("reader");
-            }
-            
+            if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
             html5QrCode.start(
-                { facingMode: "environment" }, 
-                { fps: 10, qrbox: 220 },
-                (decodedText, decodedResult) => {
-                    document.getElementById('reg-qr').value = decodedText;
-                    pararLeitorQR();
-                },
-                (errorMessage) => {}
-            ).catch(err => {
-                alert("Erro ao acessar a câmera do celular: " + err);
-                readerDiv.style.display = 'none';
-            });
+                { facingMode: "environment" }, { fps: 10, qrbox: 220 },
+                (decodedText) => { document.getElementById('reg-qr').value = decodedText; pararLeitorQR(); },
+                () => {}
+            ).catch(err => { alert("Erro na câmera: " + err); readerDiv.style.display = 'none'; });
         }
 
         function pararLeitorQR() {
             if (html5QrCode) {
-                html5QrCode.stop().then(() => {
-                    const readerDiv = document.getElementById('reader');
-                    if(readerDiv) readerDiv.style.display = 'none';
-                }).catch(() => {
+                html5QrCode.stop().catch(() => {}).finally(() => {
                     const readerDiv = document.getElementById('reader');
                     if(readerDiv) readerDiv.style.display = 'none';
                 });
-            } else {
-                const readerDiv = document.getElementById('reader');
-                if(readerDiv) readerDiv.style.display = 'none';
             }
         }
 
@@ -442,8 +399,7 @@
                 });
                 const respData = await res.json();
                 if(!res.ok) throw new Error(respData.detail || 'Erro ao registrar');
-                
-                alert("Cubículo elétrico integrado e comissionado com sucesso na nuvem!");
+                alert("Cubículo comissionado com sucesso!");
                 mudarAba('realtime');
             } catch (err) {
                 alert("Falha no comissionamento: " + err.message);
@@ -458,34 +414,20 @@
                 if (!document.getElementById('form-comission')) {
                     container.innerHTML = `
                         <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px;">
-                            <h3 style="color:#10b981; margin-top:0;">Comissionamento de Novo Cubículo em Campo</h3>
-                            <p style="font-size:12px; color:#9ca3af; margin-bottom:20px;">Utilize este assistente para cadastrar um cubículo elétrico recém-entregue pela Hitech. Escaneie o QR Code do gateway interno e preencha os dados de instalação:</p>
+                            <h3 style="color:#10b981; margin-top:0;">Comissionamento de Novo Cubículo</h3>
                             <form id="form-comission" onsubmit="registrarNovoPainel(event)" style="max-width: 500px;">
-                                <div class="input-group">
-                                    <label>ID do Painel (Ex: PANEL-04)</label>
-                                    <input type="text" id="reg-id" placeholder="PANEL-04" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Nome Descritivo do Equipamento</label>
-                                    <input type="text" id="reg-name" placeholder="Cubículo de Distribuição Setor C" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Localização Física na Fábrica do Cliente</label>
-                                    <input type="text" id="reg-location" placeholder="Galpão 2 - Ala Norte" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Classe de Tensão</label>
-                                    <input type="text" id="reg-voltage" placeholder="380V AC ou 13.8 kV" required>
-                                </div>
-                                <div class="input-group">
-                                    <label>Código QR do Gateway IoT</label>
+                                <div class="input-group"><label>ID do Painel</label><input type="text" id="reg-id" placeholder="PANEL-04" required></div>
+                                <div class="input-group"><label>Nome</label><input type="text" id="reg-name" placeholder="Cubículo Setor C" required></div>
+                                <div class="input-group"><label>Localização</label><input type="text" id="reg-location" placeholder="Galpão 2" required></div>
+                                <div class="input-group"><label>Tensão</label><input type="text" id="reg-voltage" placeholder="380V AC" required></div>
+                                <div class="input-group"><label>QR Code Gateway</label>
                                     <div style="display: flex; gap: 5px;">
                                         <input type="text" id="reg-qr" placeholder="QR-GW-9920" required>
                                         <button type="button" class="btn-action" onclick="abrirLeitorQR()">📸 Ler QR</button>
                                     </div>
                                     <div id="reader" style="width: 100%; max-width: 300px; margin-top: 10px; display: none;"></div>
                                 </div>
-                                <button type="submit" class="btn-primary" style="margin-top:10px;">Validar Modbus e Registrar na Nuvem</button>
+                                <button type="submit" class="btn-primary" style="margin-top:10px;">Registrar na Nuvem</button>
                             </form>
                         </div>
                     `;
@@ -508,11 +450,11 @@
                 container.innerHTML = lista.map(p => `
                     <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
                         <h3>🤖 Previsão IA - ${p.id}</h3>
-                        <p><strong>Componente Crítico:</strong> ${p.component}</p>
-                        <p><strong>Falha Estimada por IA em:</strong> <span style="color:${p.predictive_failure_hours < 30 ? '#ef4444':'#10b981'}">${p.predictive_failure_hours} horas</span></p>
-                        <p><strong>Diagnóstico Preditivo:</strong> ${p.recommendation}</p>
+                        <p><strong>Componente:</strong> ${p.component}</p>
+                        <p><strong>Falha Estimada:</strong> <span style="color:${p.predictive_failure_hours < 30 ? '#ef4444':'#10b981'}">${p.predictive_failure_hours} horas</span></p>
+                        <p><strong>Diagnóstico:</strong> ${p.recommendation}</p>
                         <div class="action-box">
-                            ${currentCargo === 'CEO' || currentCargo === 'Gerente' ? `<button class="btn-action" style="background:#ef4444; color:#fff;" onclick="dispararAlertaCritico('${p.id}')">🚨 Despachar Alerta Crítico (Webhook/Email)</button>` : ''}
+                            ${p.status === 'CRITICO' && (currentCargo === 'CEO' || currentCargo === 'Gerente') ? `<button class="btn-action" style="background:#ef4444; color:#fff;" onclick="dispararAlertaCritico('${p.id}')">🚨 Despachar Alerta</button>` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -520,9 +462,8 @@
                 container.innerHTML = lista.map(p => `
                     <div class="panel-card">
                         <h3>🌱 Sustentabilidade - ${p.id}</h3>
-                        <p><strong>Equipamento:</strong> ${p.name}</p>
-                        <p><strong>Perdas Energéticas Atuais:</strong> ${p.esg_waste_kwh} kWh/dia</p>
-                        <p style="color:#10b981; font-weight:bold; margin-top:10px;">Status de Emissão: Otimizado dentro das normas ESG.</p>
+                        <p><strong>Perdas Energéticas:</strong> ${p.esg_waste_kwh} kWh/dia</p>
+                        <p style="color:#10b981; font-weight:bold; margin-top:10px;">Status: Otimizado ESG.</p>
                     </div>
                 `).join('');
             } else if (currentTab === 'orders') {
@@ -532,7 +473,7 @@
                         <p><strong>Equipamento:</strong> ${p.name}</p>
                         <p><strong>Responsável:</strong> ${p.assigned_to || 'Não atribuído'}</p>
                         <div class="action-box">
-                            ${!p.assigned_to && currentCargo === 'Técnico de Campo' ? `<button class="btn-action" onclick="solicitarAssinaturaNR10('${p.id}')">Assumir com Assinatura NR-10</button>` : ''}
+                            ${!p.assigned_to && currentCargo === 'Técnico de Campo' ? `<button class="btn-action" onclick="solicitarAssinaturaNR10('${p.id}')">Assumir (NR-10)</button>` : ''}
                         </div>
                     </div>
                 `).join('');
@@ -540,10 +481,10 @@
                 container.innerHTML = `<div style="grid-column: 1/-1;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h3 style="color:#10b981; margin:0;">Log de Auditoria Corporativa Imutável</h3>
-                        <button class="btn-action" onclick="baixarRelatorioCSV()" style="background:#10b981; color:#000; font-weight:bold;">📥 Exportar Relatório CSV (Conformidade NR-10)</button>
+                        <button class="btn-action" onclick="baixarRelatorioCSV()" style="background:#10b981; color:#000; font-weight:bold;">📥 Exportar CSV</button>
                     </div>
                     <table class="enterprise-table">
-                        <tr><th>Data/Hora</th><th>Usuário</th><th>Cargo</th><th>Ação do Sistema</th><th>Detalhes</th></tr>
+                        <tr><th>Data/Hora</th><th>Usuário</th><th>Cargo</th><th>Ação</th><th>Detalhes</th></tr>
                         ${auditLogs.map(l => `<tr><td>${l.timestamp.split('.')[0]}</td><td>${l.user_name}</td><td>${l.role}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('')}
                     </table>
                 </div>`;
