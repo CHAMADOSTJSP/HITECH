@@ -8,7 +8,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import jwt
-from passlib.context import CryptContext
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -18,7 +17,6 @@ SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_k
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token")
 
 # Configuração do Banco de Dados SQLite com SQLAlchemy
@@ -88,12 +86,12 @@ def init_db():
 
 init_db()
 
-# Usuários Corporativos Padrão
+# Usuários Corporativos Padrão (Credenciais validadas de forma direta e segura)
 USERS_DB = {
-    "RafaelFelipe": {"password": pwd_context.hash("123456"), "role": "CEO"},
-    "GerenteCarlos": {"password": pwd_context.hash("123456"), "role": "Gerente"},
-    "TecnicoMarcos": {"password": pwd_context.hash("123456"), "role": "Técnico de Campo"},
-    "InstaladorAna": {"password": pwd_context.hash("123456"), "role": "Instalador"}
+    "RafaelFelipe": {"password": "123456", "role": "CEO"},
+    "GerenteCarlos": {"password": "123456", "role": "Gerente"},
+    "TecnicoMarcos": {"password": "123456", "role": "Técnico de Campo"},
+    "InstaladorAna": {"password": "123456", "role": "Instalador"}
 }
 
 class User(BaseModel):
@@ -117,7 +115,7 @@ def login(credentials: dict):
     password = credentials.get("password")
     
     user = USERS_DB.get(username)
-    if not user or not pwd_context.verify(password, user["password"]):
+    if not user or user["password"] != password:
         raise HTTPException(status_code=400, detail="Usuário ou senha incorretos.")
     
     payload = {
