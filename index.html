@@ -265,7 +265,6 @@
         }
 
         function iniciarConexao(token) {
-            // Busca inicial dos dados via HTTP REST
             fetch('/api/panels', {headers: {'Authorization': `Bearer ${token}`}})
                 .then(res => res.json())
                 .then(data => {
@@ -273,7 +272,6 @@
                 })
                 .catch(err => console.error("Erro ao buscar dados iniciais:", err));
 
-            // Tentativa de conexão WebSocket e Loop Fallback Dinâmico Garantido
             function conectarWS() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
@@ -298,20 +296,6 @@
             }
 
             conectarWS();
-
-            // Loop dinâmico de simulação e atualização em tempo real no cliente
-            setInterval(() => {
-                const listaIds = Object.keys(dadosGlobais);
-                if (listaIds.length > 0) {
-                    listaIds.forEach(id => {
-                        let p = dadosGlobais[id];
-                        // Simula pequenas flutuações realistas de engenharia elétrica
-                        if (p.current) p.current = +(p.current + (Math.random() * 2 - 1)).toFixed(2);
-                        if (p.temperature) p.temperature = +(p.temperature + (Math.random() * 0.6 - 0.3)).toFixed(1);
-                    });
-                    renderizar();
-                }
-            }, 3000);
         }
 
         function processarDados(panels, logs) {
@@ -351,12 +335,19 @@
                     headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
                     body: JSON.stringify({panel_id: painelAlvo, pin: pin})
                 });
-                if(!res.ok) throw new Error();
+                
+                const respData = await res.json();
+                if(!res.ok) throw new Error(respData.detail || "Erro na validação.");
+                
                 fecharModal();
-                dadosGlobais[painelAlvo].assigned_to = formatarNome(currentUser);
-                alert("Assinatura NR-10 validada com sucesso!");
-                renderizar();
-            } catch {
+                alert("Assinatura NR-10 validada e gravada na auditoria com sucesso!");
+                
+                // Atualiza imediatamente dados e logs após assumir a O.S.
+                const r = await fetch('/api/panels', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
+                const d = await r.json();
+                if(d.panels) processarDados(d.panels, d.audit_logs);
+            } catch (err) {
+                errorEl.innerText = err.message || "PIN incorreto! Tente novamente (1010).";
                 errorEl.style.display = 'block';
             }
         }
