@@ -55,9 +55,12 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
-# Montar pasta estática para garantir o carregamento do logo.jpg
-if os.path.exists("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+# Caminho absoluto seguro para servir assets estáticos no Render
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 def get_db():
     db = SessionLocal()
