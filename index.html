@@ -35,7 +35,7 @@
             font-weight: bold; cursor: pointer; margin-top: 5px;
         }
         button.btn-primary:hover { background: #059669; color: #fff; }
-        #error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; }
+        #error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; word-break: break-all; font-weight: bold; }
 
         #dashboard-screen {
             display: none; position: absolute; top: 0; left: 0;
@@ -119,7 +119,7 @@
         <form id="login-form" onsubmit="realizarLogin(event)">
             <div class="input-group">
                 <label>Usuário Corporativo</label>
-                <input type="text" id="usuario" placeholder="Digite seu usuário" required>
+                <input type="text" id="usuario" placeholder="Ex: RafaelFelipe" required>
             </div>
             <div class="input-group">
                 <label>Senha</label>
@@ -176,9 +176,11 @@
         async function realizarLogin(e) {
             e.preventDefault();
             const usuario = document.getElementById('usuario').value.trim();
-            const senha = document.getElementById('senha').value;
+            const senha = document.getElementById('senha').value.trim();
             const errorEl = document.getElementById('error-msg');
-            errorEl.innerText = "A autenticar...";
+            
+            errorEl.style.color = "#facc15";
+            errorEl.innerText = "A autenticar no sistema...";
 
             try {
                 const res = await fetch('/api/token', {
@@ -201,87 +203,4 @@
                 document.getElementById('cargo-display').innerText = currentCargo;
 
                 document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('dashboard-screen').style.display = 'block';
-
-                construirAbas();
-                atualizarKPIs();
-                iniciarConexao(tokenJwt);
-            } catch (err) {
-                errorEl.innerText = err.message || "Erro ao conectar com o servidor.";
-            }
-        }
-
-        function construirAbas() {
-            let html = `<button class="tab-btn active" id="t-realtime" onclick="mudarAba('realtime')">📊 Monitoramento em Tempo Real</button>`;
-            
-            if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
-                html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">🤖 IA Preditiva & Saúde</button>`;
-                html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 Eficiência Energética (ESG)</button>`;
-            }
-            
-            if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
-                html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Supervisão de O.S.</button>`;
-            } else if (currentCargo === 'Técnico de Campo') {
-                html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Ordens de Serviço</button>`;
-            }
-            
-            if (currentCargo === 'Instalador' || currentCargo === 'CEO') {
-                html += `<button class="tab-btn" id="t-commission" onclick="mudarAba('commission')">🛠️ Comissionamento em Campo</button>`;
-            }
-            
-            if (currentCargo === 'CEO') {
-                html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria Corporativa</button>`;
-            }
-            
-            document.getElementById('nav-tabs-container').innerHTML = html;
-        }
-
-        function atualizarKPIs() {
-            const banner = document.getElementById('kpi-banner');
-            banner.style.display = 'grid';
-            if (currentCargo === 'CEO') {
-                banner.innerHTML = `
-                    <div class="kpi-card"><h4>Risco Sistêmico</h4><span style="color:#ef4444;">1 Alerta Crítico</span></div>
-                    <div class="kpi-card"><h4>Custo Downtime Estimado</h4><span>R$ 14.500 / h</span></div>
-                    <div class="kpi-card"><h4>Confiabilidade Global</h4><span>98.4%</span></div>
-                    <div class="kpi-card"><h4>Economia ESG</h4><span>124 kWh Poupados</span></div>
-                `;
-            } else {
-                banner.innerHTML = `
-                    <div class="kpi-card"><h4>Equipe em Campo</h4><span>100% Operacional</span></div>
-                    <div class="kpi-card"><h4>MTTR Médio</h4><span>32 minutos</span></div>
-                    <div class="kpi-card"><h4>Eficiência da Rede</h4><span>99.1%</span></div>
-                `;
-            }
-        }
-
-        async function iniciarConexao(token) {
-            try {
-                const res = await fetch('/api/panels', {headers: {'Authorization': `Bearer ${token}`}});
-                if(res.ok) {
-                    const data = await res.json();
-                    processarDados(data.panels, data.audit_logs);
-                }
-            } catch(err) {
-                console.error("Erro ao buscar dados iniciais:", err);
-            }
-
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
-            const ws = new WebSocket(wsUrl);
-
-            ws.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                processarDados(data.panels, data.audit_logs);
-            };
-        }
-
-        function processarDados(panels, logs) {
-            auditLogs = logs || [];
-            dadosGlobais = {};
-            panels.forEach(p => { dadosGlobais[p.id] = p; });
-            renderizar();
-        }
-
-        function mudarAba(aba) {
-            if (currentTab === '
+                document.getElementById
