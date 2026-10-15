@@ -351,6 +351,26 @@
             }
         }
 
+        async function baixarRelatorioCSV() {
+            try {
+                const res = await fetch('/api/export/audit-csv', {
+                    headers: {'Authorization': `Bearer ${tokenJwt}`}
+                });
+                if(!res.ok) throw new Error("Falha ao gerar relatório.");
+                
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "hitech_voltguard_audit_report.csv";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            } catch (err) {
+                alert("Erro ao exportar relatório: " + err.message);
+            }
+        }
+
         function abrirLeitorQR() {
             const readerDiv = document.getElementById('reader');
             readerDiv.style.display = 'block';
@@ -492,7 +512,7 @@
                     <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
                         <h3>O.S. - ${p.id}</h3>
                         <p><strong>Equipamento:</strong> ${p.name}</p>
-                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Não atribuído'}</p>
+                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Not assigned'}</p>
                         <div class="action-box">
                             ${!p.assigned_to && currentCargo === 'Técnico de Campo' ? `<button class="btn-action" onclick="solicitarAssinaturaNR10('${p.id}')">Assumir com Assinatura NR-10</button>` : ''}
                         </div>
@@ -500,7 +520,10 @@
                 `).join('');
             } else if (currentTab === 'audit' && currentCargo === 'CEO') {
                 container.innerHTML = `<div style="grid-column: 1/-1;">
-                    <h3 style="color:#10b981; margin-bottom:15px;">Log de Auditoria Corporativa Imutável</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="color:#10b981; margin:0;">Log de Auditoria Corporativa Imutável</h3>
+                        <button class="btn-action" onclick="baixarRelatorioCSV()" style="background:#10b981; color:#000; font-weight:bold;">📥 Exportar Relatório CSV (Conformidade NR-10)</button>
+                    </div>
                     <table class="enterprise-table">
                         <tr><th>Data/Hora</th><th>Usuário</th><th>Cargo</th><th>Ação do Sistema</th><th>Detalhes</th></tr>
                         ${auditLogs.map(l => `<tr><td>${l.timestamp.split('.')[0]}</td><td>${l.user_name}</td><td>${l.role}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('')}
