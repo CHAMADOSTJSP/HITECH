@@ -126,7 +126,7 @@
     <script>
         let currentTab = 'realtime';
         let currentUser = '', currentCargo = '', tokenJwt = '';
-        let dadosGlobais = {}, auditLogs = [], painelAlvo = null, pollingInterval = null;
+        let dadosGlobais = {}, auditLogs = [], billingData = {}, painelAlvo = null, pollingInterval = null;
         let html5QrCode = null;
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
@@ -174,6 +174,7 @@
             }
             if (currentCargo === 'CEO') {
                 html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
+                html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
             }
             document.getElementById('nav-tabs-container').innerHTML = html;
         }
@@ -201,7 +202,8 @@
                     .then(res => res.json())
                     .then(data => {
                         if(data.panels) {
-                            document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${data.plan})`;
+                            billingData = data.billing || {};
+                            document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${billingData.plan_name})`;
                             auditLogs = data.audit_logs || [];
                             dadosGlobais = {};
                             data.panels.forEach(p => { dadosGlobais[p.id] = p; });
@@ -217,11 +219,21 @@
         function mudarAba(aba) {
             if (currentTab === 'commission' && aba !== 'commission') pararLeitor();
             currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit'].forEach(t => {
+            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing'].forEach(t => {
                 const el = document.getElementById(`t-${t}`);
                 if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
             });
             renderizar();
+        }
+
+        async function alterarPlano(novoPlano) {
+            const res = await fetch('/api/tenant/upgrade-plan', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({plan_name: novoPlano})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); } else { alert("Erro ao atualizar plano."); }
         }
 
         async function dispararAlerta(id) {
@@ -278,6 +290,22 @@
         function renderizar() {
             const container = document.getElementById('main-container');
             const lista = Object.values(dadosGlobais);
+
+            if (currentTab === 'billing' && currentCargo === 'CEO') {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px;">
+                        <h3 style="color:#10b981; margin-top:0;">💳 Gestão de Assinatura & Faturamento SaaS</h3>
+                        <p style="font-size:13px; color:#d1d5db;">Plano Atual: <strong style="color:#34d399;">${billingData.plan_name}</strong></p>
+                        <p style="font-size:13px; color:#d1d5db;">Status da Licença: <strong style="color:#34d399;">${billingData.status}</strong></p>
+                        <p style="font-size:13px; color:#d1d5db;">Expira em: <strong>${billingData.expires_at}</strong></p>
+                        <p style="font-size:13px; color:#d1d5db;">Limite de Cubículos: <strong>${billingData.max_panels} unidades</strong></p>
+                        <div style="margin-top: 20px; display: flex; gap: 10px;">
+                            <button class="btn-action" onclick="alterarPlano('Standard')">Mudar para Plano Standard</button>
+                            <button class="btn-action" style="background:#10b981; color:#000;" onclick="alterarPlano('Enterprise')">Ativar Plano Enterprise</button>
+                        </div>
+                    </div>`;
+                return;
+            }
 
             if (currentTab === 'commission' && (currentCargo === 'Instalador' || currentCargo === 'CEO')) {
                 container.innerHTML = `
