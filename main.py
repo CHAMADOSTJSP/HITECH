@@ -3,7 +3,7 @@ import io
 import random
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -12,20 +12,17 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# Configuração de Segurança e JWT
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token")
 
-# Configuração do Banco de Dados com suporte a concorrência industrial
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./voltguard.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Modelos do Banco de Dados com suporte a Multi-Tenant (tenant_id)
 class PanelModel(Base):
     __tablename__ = "panels"
     id = Column(String, primary_key=True, index=True)
@@ -55,14 +52,14 @@ class AuditLogModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Production Grade")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Live Telemetry")
 
 @app.get("/logo.jpg")
 def get_logo():
     logo_path = "logo.jpg"
     if os.path.exists(logo_path):
         return FileResponse(logo_path)
-    raise HTTPException(status_code=404, detail="Logo corporativa não encontrada no servidor.")
+    raise HTTPException(status_code=404, detail="Logo não encontrada.")
 
 def get_db():
     db = SessionLocal()
@@ -81,15 +78,8 @@ def init_db():
                 PanelModel(id="PANEL-03", tenant_id="HITECH-DEFAULT", name="Painel de Bombeamento / Incessor", location="Casa de Bombas / Saneamento", voltage="380V AC", current=530.94, temperature=65.12, gateway_qr="QR-GW-1104", status="NORMAL", component="Inversores de Frequência", predictive_failure_hours=210, recommendation="Filtros de harmônicas limpos e operacionais.", esg_waste_kwh=1.1)
             ]
             db.add_all(initial_panels)
-            
-            initial_logs = [
-                AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO_SISTEMA", details="Sistema SCADA Enterprise SaaS iniciado com sucesso.")
-            ]
-            db.add_all(initial_logs)
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema SaaS iniciado."))
             db.commit()
-    except Exception as e:
-        db.rollback()
-        raise e
     finally:
         db.close()
 
@@ -111,39 +101,29 @@ class User(BaseModel):
 def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        role: str = payload.get("role", "Técnico de Campo")
-        tenant_id: str = payload.get("tenant_id", "HITECH-DEFAULT")
-        plan: str = payload.get("plan", "Enterprise")
-        if username is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido.")
-        return User(username=username, role=role, tenant_id=tenant_id, plan=plan)
+        return User(username=payload.get("sub"), role=payload.get("role"), tenant_id=payload.get("tenant_id"), plan=payload.get("plan"))
     except jwt.PyJWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expirado ou corrompido.")
+        raise HTTPException(status_code=401, detail="Token inválido.")
 
 @app.post("/api/token")
 def login(credentials: dict):
-    username = credentials.get("username")
-    password = credentials.get("password")
-    
-    user = USERS_DB.get(username)
-    if not user or user["password"] != password:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuário ou senha incorretos.")
-    
-    payload = {
-        "sub": username,
-        "role": user["role"],
-        "tenant_id": user["tenant_id"],
-        "plan": user["plan"],
-        "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    }
-    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    user = USERS_DB.get(credentials.get("username"))
+    if not user or user["password"] != credentials.get("password"):
+        raise HTTPException(status_code=400, detail="Credenciais inválidas.")
+    token = jwt.encode({"sub": credentials.get("username"), "role": user["role"], "tenant_id": user["tenant_id"], "plan": user["plan"], "exp": datetime.utcnow() + timedelta(days=1)}, SECRET_KEY, algorithm="HS256")
     return {"access_token": token, "token_type": "bearer", "role": user["role"], "plan": user["plan"]}
 
 @app.get("/api/panels")
 def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
+        
+        # Atualiza a telemetria ao vivo a cada requisição de polling para garantir dinamismo
+        for p in panels:
+            p.current = round(max(10.0, p.current + random.uniform(-1.2, 1.2)), 2)
+            p.temperature = round(max(20.0, p.temperature + random.uniform(-0.3, 0.3)), 2)
+        db.commit()
+
         logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
         
         panels_data = [{
@@ -160,116 +140,53 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         
         return {"panels": panels_data, "audit_logs": logs_data, "tenant_id": current_user.tenant_id, "plan": current_user.plan}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro interno ao buscar telemetria: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/export/audit-csv")
 def export_audit_csv(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "CEO":
-        raise HTTPException(status_code=403, detail="Acesso restrito ao CEO.")
-    
+        raise HTTPException(status_code=403, detail="Acesso restrito.")
     logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).all()
-    
     output = io.StringIO()
     output.write("ID,Data/Hora,Usuario,Cargo,Acao,Detalhes\n")
     for l in logs:
         output.write(f"{l.id},{l.timestamp},{l.user_name},{l.role},{l.action},\"{l.details}\"\n")
-    
     output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=hitech_audit_{current_user.tenant_id}.csv"}
-    )
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=audit_{current_user.tenant_id}.csv"})
 
 @app.post("/api/alerts/dispatch")
 def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
-        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem disparar alertas.")
-    
-    panel_id = data.get("panel_id")
-    panel = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first()
+        raise HTTPException(status_code=403, detail="Não autorizado.")
+    panel = db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Painel não encontrado.")
-    
-    try:
-        novo_log = AuditLogModel(
-            tenant_id=current_user.tenant_id,
-            user_name=current_user.username,
-            role=current_user.role,
-            action="DISPARO_ALERTA_CRITICO",
-            details=f"Alerta de falha iminente ({panel.component}) despachado para o cubículo {panel_id}."
-        )
-        db.add(novo_log)
-        db.commit()
-        return {"status": "success", "message": f"Alerta crítico para o painel {panel_id} despachado com sucesso!"}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="ALERTA", details=f"Alerta crítico despachado para {panel.id}."))
+    db.commit()
+    return {"status": "success", "message": f"Alerta despachado para {panel.id} com sucesso!"}
 
 @app.post("/api/validate-nr10-pin")
 def validate_nr10_pin(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    panel_id = data.get("panel_id")
-    pin = data.get("pin")
-    
-    if pin != "1010":
-        raise HTTPException(status_code=400, detail="PIN NR-10 incorreto.")
-    
-    panel = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first()
+    if data.get("pin") != "1010":
+        raise HTTPException(status_code=400, detail="PIN incorreto.")
+    panel = db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Painel não encontrado.")
-    
-    try:
-        panel.assigned_to = current_user.username
-        novo_log = AuditLogModel(
-            tenant_id=current_user.tenant_id,
-            user_name=current_user.username,
-            role=current_user.role,
-            action="ASSINATURA_NR10",
-            details=f"Intervenção assumida no cubículo {panel_id}"
-        )
-        db.add(novo_log)
-        db.commit()
-        return {"status": "success", "message": "Assinatura NR-10 validada com sucesso."}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    panel.assigned_to = current_user.username
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="NR10", details=f"Assumido no painel {panel.id}"))
+    db.commit()
+    return {"status": "success", "message": "Validação OK."}
 
 @app.post("/api/panels/register")
 def register_panel(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Instalador"]:
-        raise HTTPException(status_code=403, detail="Acesso não autorizado.")
-    
-    panel_id = data.get("panel_id")
-    if db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first():
-        raise HTTPException(status_code=400, detail="ID de painel já registado.")
-    
-    try:
-        novo_painel = PanelModel(
-            id=panel_id,
-            tenant_id=current_user.tenant_id,
-            name=data.get("name"),
-            location=data.get("location"),
-            voltage=data.get("voltage"),
-            gateway_qr=data.get("gateway_qr"),
-            status="NORMAL",
-            current=round(random.uniform(100, 300), 2),
-            temperature=round(random.uniform(45, 60), 2)
-        )
-        db.add(novo_painel)
-        
-        novo_log = AuditLogModel(
-            tenant_id=current_user.tenant_id,
-            user_name=current_user.username,
-            role=current_user.role,
-            action="COMISSIONAMENTO_NOVO_PAINEL",
-            details=f"Painel {panel_id} comissionado via Gateway IoT."
-        )
-        db.add(novo_log)
-        db.commit()
-        return {"status": "success", "message": "Painel comissionado com sucesso."}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=403, detail="Não autorizado.")
+    if db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first():
+        raise HTTPException(status_code=400, detail="Painel já existe.")
+    db.add(PanelModel(id=data.get("panel_id"), tenant_id=current_user.tenant_id, name=data.get("name"), location=data.get("location"), voltage=data.get("voltage"), gateway_qr=data.get("gateway_qr"), status="NORMAL", current=150.0, temperature=50.0))
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="COMISSIONAMENTO", details=f"Painel {data.get('panel_id')} registado."))
+    db.commit()
+    return {"status": "success", "message": "Registado com sucesso."}
 
 @app.get("/")
 def serve_index():
