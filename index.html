@@ -175,6 +175,7 @@
             if (currentCargo === 'CEO') {
                 html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
                 html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
+                html += `<button class="tab-btn" id="t-executive" onclick="mudarAba('executive')">📈 Relatório Executivo</button>`;
             }
             document.getElementById('nav-tabs-container').innerHTML = html;
         }
@@ -219,7 +220,7 @@
         function mudarAba(aba) {
             if (currentTab === 'commission' && aba !== 'commission') pararLeitor();
             currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing'].forEach(t => {
+            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing', 'executive'].forEach(t => {
                 const el = document.getElementById(`t-${t}`);
                 if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
             });
@@ -234,6 +235,15 @@
             });
             const d = await res.json();
             if(res.ok) { alert(d.message); } else { alert("Erro ao atualizar plano."); }
+        }
+
+        async function baixarRelatorioExecutivo() {
+            const res = await fetch('/api/export/executive-report', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = window.URL.createObjectURL(blob);
+            a.download = "relatorio_executivo_hitech.txt";
+            a.click();
         }
 
         async function dispararAlerta(id) {
@@ -290,6 +300,16 @@
         function renderizar() {
             const container = document.getElementById('main-container');
             const lista = Object.values(dadosGlobais);
+
+            if (currentTab === 'executive' && currentCargo === 'CEO') {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 700px;">
+                        <h3 style="color:#10b981; margin-top:0;">📈 Relatório Executivo e Consolidado de Frotas</h3>
+                        <p style="font-size:13px; color:#d1d5db;">Gere um relatório gerencial consolidado contendo métricas de downtime, status de conformidade NR-10 e diagnóstico de todas as subestações conectadas.</p>
+                        <button class="btn-action" style="background:#10b981; color:#000; font-weight:bold; padding: 10px 18px; margin-top: 15px;" onclick="baixarRelatorioExecutivo()">📥 Baixar Relatório Executivo Consolidado (.txt)</button>
+                    </div>`;
+                return;
+            }
 
             if (currentTab === 'billing' && currentCargo === 'CEO') {
                 container.innerHTML = `
