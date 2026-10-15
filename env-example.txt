@@ -1,0 +1,15 @@
+# Chave Secreta para Criptografia de Tokens JWT
+JWT_SECRET_KEY=sua_chave_secreta_super_segura_aqui
+
+# Credenciais de Acesso (Caso altere no ambiente de produção)
+CEO_USER=RafaelFelipe
+CEO_PASS=HitechCEO
+GERENTE_USER=GuilhermeCosta
+GERENTE_PASS=HitechCEO
+INSTALADOR_USER=InstaladorCampo
+INSTALADOR_PASS=HitechCEO
+TECNICO_USER=admin
+TECNICO_PASS=HitechCEO
+
+# Porta do Servidor
+PORT=8080
