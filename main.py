@@ -1,11 +1,11 @@
 import os
+import io
 import random
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 import jwt
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
@@ -164,6 +164,25 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
     ]
     
     return {"panels": panels_data, "audit_logs": logs_data}
+
+@app.get("/api/export/audit-csv")
+def export_audit_csv(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "CEO":
+        raise HTTPException(status_code=403, detail="Acesso restrito ao perfil de CEO para exportação de auditoria.")
+    
+    logs = db.query(AuditLogModel).order_by(AuditLogModel.timestamp.desc()).all()
+    
+    output = io.StringIO()
+    output.write("ID,Data/Hora,Usuario,Cargo,Acao,Detalhes\n")
+    for l in logs:
+        output.write(f"{l.id},{l.timestamp},{l.user_name},{l.role},{l.action},\"{l.details}\"\n")
+    
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=hitech_voltguard_audit_report.csv"}
+    )
 
 @app.post("/api/validate-nr10-pin")
 def validate_nr10_pin(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
