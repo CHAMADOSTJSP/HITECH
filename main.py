@@ -57,10 +57,11 @@ class TenantSubscriptionModel(Base):
     status = Column(String, default="ACTIVE")
     expires_at = Column(DateTime, default=datetime.utcnow() + timedelta(days=365))
     max_panels = Column(Integer, default=25)
+    webhook_url = Column(String, nullable=True, default="https://api.whatsapp.com/send?phone=5516999999999")
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Fleet & Executive Edition")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Webhook Edition")
 
 @app.get("/logo.jpg")
 def get_logo():
@@ -86,8 +87,8 @@ def init_db():
                 PanelModel(id="PANEL-03", tenant_id="HITECH-DEFAULT", name="Painel de Bombeamento / Incessor", location="Fábrica 02 - Saneamento", voltage="380V AC", current=530.94, temperature=65.12, gateway_qr="QR-GW-1104", status="NORMAL", component="Inversores de Frequência", predictive_failure_hours=210, recommendation="Filtros operacionais.", esg_waste_kwh=1.1)
             ]
             db.add_all(initial_panels)
-            db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fleet & Executive inicializado com sucesso."))
+            db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Webhook Edition inicializado com sucesso."))
             db.commit()
     finally:
         db.close()
@@ -150,7 +151,8 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
             "plan_name": sub.plan_name if sub else "Enterprise",
             "status": sub.status if sub else "ACTIVE",
             "expires_at": str(sub.expires_at) if sub else "2027-10-15",
-            "max_panels": sub.max_panels if sub else 25
+            "max_panels": sub.max_panels if sub else 25,
+            "webhook_url": sub.webhook_url if sub else ""
         }
 
         return {"panels": panels_data, "audit_logs": logs_data, "tenant_id": current_user.tenant_id, "billing": billing_info}
@@ -210,6 +212,20 @@ def upgrade_plan(data: dict, db: Session = Depends(get_db), current_user: User =
     db.commit()
     return {"status": "success", "message": f"Assinatura atualizada para o plano {new_plan} com sucesso!"}
 
+@app.post("/api/tenant/webhook")
+def update_webhook(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "CEO":
+        raise HTTPException(status_code=403, detail="Apenas o CEO pode configurar webhooks.")
+    webhook_url = data.get("webhook_url", "")
+    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+    if not sub:
+        sub = TenantSubscriptionModel(tenant_id=current_user.tenant_id)
+        db.add(sub)
+    sub.webhook_url = webhook_url
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="WEBHOOK_CONFIG", details=f"Webhook atualizado para {webhook_url}."))
+    db.commit()
+    return {"status": "success", "message": "Webhook de notificação configurado com sucesso!"}
+
 @app.post("/api/alerts/dispatch")
 def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
@@ -217,9 +233,13 @@ def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_u
     panel = db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Painel não encontrado.")
-    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="ALERTA", details=f"Alerta crítico despachado para {panel.id}."))
+    
+    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+    webhook_destino = sub.webhook_url if sub and sub.webhook_url else "Nenhum configurado"
+
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="ALERTA_WEBHOOK", details=f"Alerta crítico disparado para {panel.id} via Webhook ({webhook_destino})."))
     db.commit()
-    return {"status": "success", "message": f"Alerta despachado para {panel.id} com sucesso!"}
+    return {"status": "success", "message": f"Alerta crítico despachado via Webhook para {webhook_destino} com sucesso!"}
 
 @app.post("/api/validate-nr10-pin")
 def validate_nr10_pin(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
