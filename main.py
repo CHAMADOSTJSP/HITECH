@@ -56,11 +56,11 @@ class TenantSubscriptionModel(Base):
     plan_name = Column(String, default="Enterprise")
     status = Column(String, default="ACTIVE")
     expires_at = Column(DateTime, default=datetime.utcnow() + timedelta(days=365))
-    max_panels = Column(Integer, default=10)
+    max_panels = Column(Integer, default=25)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - SaaS Billing Edition")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Fleet & Executive Edition")
 
 @app.get("/logo.jpg")
 def get_logo():
@@ -81,13 +81,13 @@ def init_db():
     try:
         if db.query(PanelModel).count() == 0:
             initial_panels = [
-                PanelModel(id="PANEL-01", tenant_id="HITECH-DEFAULT", name="Cubículo Geral de Média Tensão (MT)", location="Subestação Principal - Setor A", voltage="13.8 kV", current=454.23, temperature=70.58, gateway_qr="QR-GW-0010", status="NORMAL", component="Barramento de Cobre", predictive_failure_hours=145, recommendation="Inspeção termográfica de rotina em 60 dias.", esg_waste_kwh=0.8),
-                PanelModel(id="PANEL-02", tenant_id="HITECH-DEFAULT", name="QGBT - Alimentação de Baixa Tensão", location="Área de Utilidades / Comércio", voltage="380V AC", current=215.5, temperature=91.19, gateway_qr="QR-GW-0070", status="CRITICO", component="Contator Geral 400A", predictive_failure_hours=18, recommendation="Substituição imediata do contator devido a desgaste nos contatos.", esg_waste_kwh=4.5),
-                PanelModel(id="PANEL-03", tenant_id="HITECH-DEFAULT", name="Painel de Bombeamento / Incessor", location="Casa de Bombas / Saneamento", voltage="380V AC", current=530.94, temperature=65.12, gateway_qr="QR-GW-1104", status="NORMAL", component="Inversores de Frequência", predictive_failure_hours=210, recommendation="Filtros de harmônicas limpos e operacionais.", esg_waste_kwh=1.1)
+                PanelModel(id="PANEL-01", tenant_id="HITECH-DEFAULT", name="Cubículo Geral de Média Tensão (MT)", location="Subestação Principal - Ribeirão Preto", voltage="13.8 kV", current=454.23, temperature=70.58, gateway_qr="QR-GW-0010", status="NORMAL", component="Barramento de Cobre", predictive_failure_hours=145, recommendation="Inspeção termográfica de rotina em 60 dias.", esg_waste_kwh=0.8),
+                PanelModel(id="PANEL-02", tenant_id="HITECH-DEFAULT", name="QGBT - Alimentação de Baixa Tensão", location="Fábrica 01 - Setor de Utilidades", voltage="380V AC", current=215.5, temperature=91.19, gateway_qr="QR-GW-0070", status="CRITICO", component="Contator Geral 400A", predictive_failure_hours=18, recommendation="Substituição imediata do contator devido a desgaste.", esg_waste_kwh=4.5),
+                PanelModel(id="PANEL-03", tenant_id="HITECH-DEFAULT", name="Painel de Bombeamento / Incessor", location="Fábrica 02 - Saneamento", voltage="380V AC", current=530.94, temperature=65.12, gateway_qr="QR-GW-1104", status="NORMAL", component="Inversores de Frequência", predictive_failure_hours=210, recommendation="Filtros operacionais.", esg_waste_kwh=1.1)
             ]
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="SaaS Billing Edition inicializado."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fleet & Executive inicializado com sucesso."))
             db.commit()
     finally:
         db.close()
@@ -169,17 +169,41 @@ def export_audit_csv(db: Session = Depends(get_db), current_user: User = Depends
     output.seek(0)
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=audit_{current_user.tenant_id}.csv"})
 
+@app.get("/api/export/executive-report")
+def export_executive_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Acesso restrito a diretores.")
+    
+    panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
+    output = io.StringIO()
+    output.write("====================================================\n")
+    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO DE FROTA\n")
+    output.write(f" Organizacao: {current_user.tenant_id} | Data: {datetime.utcnow()}\n")
+    output.write("====================================================\n\n")
+    
+    for p in panels:
+        output.write(f"ID: {p.id} | Nome: {p.name}\n")
+        output.write(f"Localizacao: {p.location}\n")
+        output.write(f"Status Atual: {p.status} | Corrente: {p.current}A | Temp: {p.temperature}C\n")
+        output.write(f"Previsao Falha: {p.predictive_failure_hours}h | Recomendacao: {p.recommendation}\n")
+        output.write("-" * 50 + "\n")
+        
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename=hitech_executive_report_{current_user.tenant_id}.txt"}
+    )
+
 @app.post("/api/tenant/upgrade-plan")
 def upgrade_plan(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "CEO":
-        raise HTTPException(status_code=403, detail="Apenas o CEO pode alterar o plano de assinatura.")
-    
+        raise HTTPException(status_code=403, detail="Apenas o CEO pode alterar o plano.")
     new_plan = data.get("plan_name", "Enterprise")
     sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
     if not sub:
         sub = TenantSubscriptionModel(tenant_id=current_user.tenant_id)
         db.add(sub)
-    
     sub.plan_name = new_plan
     sub.max_panels = 50 if new_plan == "Enterprise" else 10
     db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="BILLING_UPGRADE", details=f"Plano alterado para {new_plan}."))
