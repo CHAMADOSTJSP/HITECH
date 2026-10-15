@@ -371,6 +371,21 @@
             }
         }
 
+        async function dispararAlertaCritico(id) {
+            try {
+                const res = await fetch('/api/alerts/dispatch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                    body: JSON.stringify({panel_id: id})
+                });
+                const data = await res.json();
+                if(!res.ok) throw new Error(data.detail || "Erro ao despachar alerta.");
+                alert(data.message);
+            } catch (err) {
+                alert("Erro: " + err.message);
+            }
+        }
+
         function abrirLeitorQR() {
             const readerDiv = document.getElementById('reader');
             readerDiv.style.display = 'block';
@@ -491,11 +506,14 @@
                 `).join('');
             } else if (currentTab === 'predictive') {
                 container.innerHTML = lista.map(p => `
-                    <div class="panel-card">
+                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
                         <h3>🤖 Previsão IA - ${p.id}</h3>
                         <p><strong>Componente Crítico:</strong> ${p.component}</p>
                         <p><strong>Falha Estimada por IA em:</strong> <span style="color:${p.predictive_failure_hours < 30 ? '#ef4444':'#10b981'}">${p.predictive_failure_hours} horas</span></p>
                         <p><strong>Diagnóstico Preditivo:</strong> ${p.recommendation}</p>
+                        <div class="action-box">
+                            ${currentCargo === 'CEO' || currentCargo === 'Gerente' ? `<button class="btn-action" style="background:#ef4444; color:#fff;" onclick="dispararAlertaCritico('${p.id}')">🚨 Despachar Alerta Crítico (Webhook/Email)</button>` : ''}
+                        </div>
                     </div>
                 `).join('');
             } else if (currentTab === 'esg') {
@@ -512,7 +530,7 @@
                     <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
                         <h3>O.S. - ${p.id}</h3>
                         <p><strong>Equipamento:</strong> ${p.name}</p>
-                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Not assigned'}</p>
+                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Não atribuído'}</p>
                         <div class="action-box">
                             ${!p.assigned_to && currentCargo === 'Técnico de Campo' ? `<button class="btn-action" onclick="solicitarAssinaturaNR10('${p.id}')">Assumir com Assinatura NR-10</button>` : ''}
                         </div>
