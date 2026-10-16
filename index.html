@@ -191,10 +191,7 @@
             const senhaInput = document.getElementById('senha');
             const errEl = document.getElementById('error-msg');
 
-            if (!usuarioInput || !senhaInput) {
-                if(errEl) errEl.innerText = "Erro interno: Campos de login não encontrados.";
-                return;
-            }
+            if (!usuarioInput || !senhaInput) return;
 
             const usuario = usuarioInput.value.trim();
             const senha = senhaInput.value.trim();
@@ -280,28 +277,4 @@
                             auditLogs = data.audit_logs || [];
                             inventoryData = data.inventory || [];
                             dadosGlobais = {};
-                            data.panels.forEach(p => { dadosGlobais[p.id] = p; });
-                            renderizar();
-                        }
-                    }).catch(err => console.error(err));
-            }
-
-            buscar();
-            pollingInterval = setInterval(buscar, 3000);
-        }
-
-        function mudarAba(aba) {
-            if (currentTab === 'commission' && aba !== 'commission') pararLeitor();
-            currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'inventory', 'orders', 'commission', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
-                const el = document.getElementById(`t-${t}`);
-                if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
-            });
-            renderizar();
-        }
-
-        async function simularFalhaComercial(id) {
-            const res = await fetch('/api/demo/force-failure', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body
+                            data.panels.forEach(p => { dadosGlobais[p.id] = p;
