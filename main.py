@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 import io
 import os
@@ -10,8 +10,8 @@ import os
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
 class LoginPayload(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., alias="username")
+    password: str = Field(..., alias="password")
 
 class TenantRegister(BaseModel):
     tenant_id: str
@@ -105,7 +105,6 @@ db_inventory = [
     {"part_name": "Módulo Retificador 50A", "category": "Alimentação", "quantity_in_stock": 5, "min_threshold": 2, "unit_cost": 1200.0}
 ]
 
-# Rota explícita para servir a raiz garantindo renderização correta
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     if os.path.exists("index.html"):
@@ -114,9 +113,19 @@ def read_root():
     return "<h1>Erro: index.html não encontrado no diretório.</h1>"
 
 @app.post("/api/token")
-async def login_access_token(payload: LoginPayload = None, form_data: OAuth2PasswordRequestForm = Depends()):
-    username = payload.username if payload else form_data.username
-    password = payload.password if payload else form_data.password
+async def login_access_token(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    
+    username = body.get("username")
+    password = body.get("password")
+
+    if not username or not password:
+        form_data = await request.form()
+        username = form_data.get("username")
+        password = form_data.get("password")
 
     user = db_users.get(username)
     if not user or user["password"] != password:
@@ -240,3 +249,6 @@ def validate_pin(data: PinValidation):
                 p["assigned_to"] = "RafaelFelipe"
         return {"message": "Assinatura NR-10 validada com sucesso."}
     raise HTTPException(status_code=400, detail="PIN inválido.")
+
+# Servir recursos estáticos (logo.jpg, etc.)
+app.mount("/static", StaticFiles(directory="."), name="static_files")
