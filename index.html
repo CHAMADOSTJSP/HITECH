@@ -110,7 +110,7 @@
     </div>
 
     <!-- MODAL DE INVENTÁRIO -->
-    <div id="modal-inventory" style="display:none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
+    <div id="modal-inventory">
         <div class="modal-box" style="width: 420px;">
             <h3 style="color:#10b981; margin-top:0;">📦 Atualizar / Registar Peça (Almoxarifado)</h3>
             <div class="input-group"><label>Nome da Peça</label><input type="text" id="inv-part" placeholder="Ex: Contator Geral 400A"></div>
@@ -119,21 +119,20 @@
             <div class="input-group"><label>Custo Unitário (R$)</label><input type="number" step="0.01" id="inv-cost" value="150.0"></div>
             <div class="input-group"><label>Limite Mínimo de Alerta</label><input type="number" id="inv-min" value="3"></div>
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalInventario()">Cancelar</button>
-                <button class="btn-action" onclick="submeterInventario()">Salvar Peça</button>
+                <button type="button" class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalInventario()">Cancelar</button>
+                <button type="button" class="btn-action" onclick="submeterInventario()">Salvar Peça</button>
             </div>
         </div>
     </div>
 
     <!-- MODAL DE ADICIONAR PAINEL COM LEITOR QR DE AUTOPREENCHIMENTO -->
-    <div id="modal-panel" style="display:none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
+    <div id="modal-panel">
         <div class="modal-box">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <h3 style="color:#10b981; margin:0;">⚡ Adicionar Painel</h3>
                 <button type="button" class="btn-action" style="background:#047857; color:#fff;" onclick="toggleCamModalPanel()">📷 Ler QR para Autopreencher</button>
             </div>
 
-            <!-- Contentor da câmara do modal -->
             <div id="reader-modal-panel" style="width: 100%; background: #06110b; border-radius: 6px; overflow: hidden; display:none; margin-bottom:15px;"></div>
 
             <div class="input-group"><label>ID do Painel</label><input type="text" id="panel-id-input" placeholder="Ex: PANEL-04"></div>
@@ -144,8 +143,8 @@
             <div class="input-group"><label>Código Gateway QR</label><input type="text" id="panel-qr-input" placeholder="Ex: QR-GW-5001"></div>
 
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalPainel()">Cancelar</button>
-                <button class="btn-action" onclick="submeterNovoPainel()">Registar Painel</button>
+                <button type="button" class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalPainel()">Cancelar</button>
+                <button type="button" class="btn-action" onclick="submeterNovoPainel()">Registar Painel</button>
             </div>
         </div>
     </div>
@@ -161,7 +160,7 @@
                 <span class="badge-tenant" id="tenant-display">-</span>
                 <span>Usuário: <strong id="user-display">-</strong></span>
                 <span class="badge-cargo" id="cargo-display">-</span>
-                <button class="btn-logout" onclick="location.reload()">Sair</button>
+                <button type="button" class="btn-logout" onclick="location.reload()">Sair</button>
             </div>
         </div>
 
@@ -170,226 +169,4 @@
         <div id="main-container" class="panels-grid"></div>
     </div>
 
-    <!-- SCRIPT DE LÓGICA E INTERAÇÃO -->
-    <script>
-        let currentTab = 'realtime';
-        let currentUser = '', currentCargo = '', tokenJwt = '';
-        let dadosGlobais = {}, auditLogs = [], billingData = {}, inventoryData = {}, historyData = {}, pollingInterval = null;
-        let ws = null;
-        let chartInstances = {};
-        let html5QrCodeScanner = null;
-        let modalQrScanner = null;
-
-        function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
-
-        function mostrarRegisto(mostrar) {
-            document.getElementById('login-screen').style.display = mostrar ? 'none' : 'block';
-            document.getElementById('register-screen').style.display = mostrar ? 'block' : 'none';
-        }
-
-        async function registarTenant() {
-            const tenant = document.getElementById('reg-tenant').value.trim();
-            const user = document.getElementById('reg-user').value.trim();
-            const pass = document.getElementById('reg-pass').value.trim();
-            const errEl = document.getElementById('reg-error-msg');
-
-            try {
-                const res = await fetch('/api/tenant/register', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({tenant_id: tenant, username: user, password: pass})
-                });
-                const data = await res.json();
-                if(!res.ok) throw new Error(data.detail || "Erro ao registar.");
-                alert(data.message);
-                mostrarRegisto(false);
-            } catch (err) {
-                errEl.innerText = err.message;
-            }
-        }
-
-        async function realizarLogin() {
-            const usuarioInput = document.getElementById('usuario');
-            const senhaInput = document.getElementById('senha');
-            const errEl = document.getElementById('error-msg');
-
-            if(!usuarioInput || !senhaInput) {
-                errEl.innerText = "Erro crítico: Elementos de formulário não encontrados.";
-                return;
-            }
-
-            const usuario = usuarioInput.value.trim().replace(/\s+/g, '');
-            const senha = senhaInput.value.trim();
-            errEl.innerText = "";
-
-            try {
-                const res = await fetch('/api/token', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: usuario, password: senha})
-                });
-                
-                const data = await res.json();
-                if(!res.ok) {
-                    throw new Error(data.detail || "Utilizador ou senha incorretos.");
-                }
-
-                tokenJwt = data.access_token;
-                currentCargo = data.role;
-                currentUser = usuario;
-
-                document.getElementById('user-display').innerText = formatarNome(usuario);
-                document.getElementById('cargo-display').innerText = currentCargo;
-                document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('dashboard-screen').style.display = 'block';
-
-                construirAbas();
-                atualizarKPIs();
-                iniciarPolling();
-                iniciarWebSocket();
-            } catch (err) {
-                console.error("Erro no Login:", err);
-                errEl.innerText = err.message;
-            }
-        }
-
-        function iniciarWebSocket() {
-            try {
-                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${proto}//${location.host}/ws/panels`);
-                ws.onmessage = (event) => {
-                    const msg = JSON.parse(event.data);
-                    if(msg.event === 'PANEL_UPDATE') {
-                        buscarDadosPainéis();
-                    }
-                };
-            } catch(e) {
-                console.error("Erro no WebSocket:", e);
-            }
-        }
-
-        function construirAbas() {
-            let html = `<button class="tab-btn active" id="t-realtime" onclick="mudarAba('realtime')">📊 Tempo Real</button>`;
-            html += `<button class="tab-btn" id="t-commission" onclick="mudarAba('commission')">📷 Comissionamento (QR)</button>`;
-            if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
-                html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">📈 Tendência Térmica</button>`;
-                html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 ESG</button>`;
-                html += `<button class="tab-btn" id="t-inventory" onclick="mudarAba('inventory')">📦 Almoxarifado</button>`;
-                html += `<button class="tab-btn" id="t-rules" onclick="mudarAba('rules')">⚙️ Regras de Alarme</button>`;
-            }
-            html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Ordens de Serviço</button>`;
-            if (currentCargo === 'CEO') {
-                html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
-                html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
-                html += `<button class="tab-btn" id="t-executive" onclick="mudarAba('executive')">📈 Relatório Executivo</button>`;
-                html += `<button class="tab-btn" id="t-webhooks" onclick="mudarAba('webhooks')">🔔 Webhooks</button>`;
-                html += `<button class="tab-btn" id="t-demo" onclick="mudarAba('demo')" style="background:#b91c1c; color:#fff;">🎬 Demo Vendas (Simulador)</button>`;
-            }
-            document.getElementById('nav-tabs-container').innerHTML = html;
-        }
-
-        function atualizarKPIs() {
-            const banner = document.getElementById('kpi-banner');
-            banner.style.display = 'grid';
-            banner.innerHTML = currentCargo === 'CEO' ? `
-                <div class="kpi-card"><h4>Risco</h4><span style="color:#ef4444;">Monitorizado</span></div>
-                <div class="kpi-card"><h4>Downtime</h4><span>R$ 14.500 / h</span></div>
-                <div class="kpi-card"><h4>Confiabilidade</h4><span>98.4%</span></div>
-                <div class="kpi-card"><h4>ESG</h4><span>124 kWh</span></div>
-            ` : `
-                <div class="kpi-card"><h4>Equipe</h4><span>100% Ativa</span></div>
-                <div class="kpi-card"><h4>MTTR</h4><span>32 min</span></div>
-                <div class="kpi-card"><h4>Eficiência</h4><span>99.1%</span></div>
-            `;
-        }
-
-        function buscarDadosPainéis() {
-            fetch('/api/panels', {headers: {'Authorization': `Bearer ${tokenJwt}`}})
-                .then(res => res.json())
-                .then(data => {
-                    if(data.panels) {
-                        billingData = data.billing || {};
-                        document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${billingData.plan_name})`;
-                        auditLogs = data.audit_logs || [];
-                        inventoryData = data.inventory || [];
-                        historyData = data.history || {};
-                        dadosGlobais = {};
-                        data.panels.forEach(p => { dadosGlobais[p.id] = p; });
-                        
-                        if (currentTab === 'predictive') {
-                            atualizarGraficosExistentes();
-                        } else if (currentTab !== 'commission') {
-                            renderizar();
-                        }
-                    }
-                }).catch(err => console.error(err));
-        }
-
-        function iniciarPolling() {
-            if (pollingInterval) clearInterval(pollingInterval);
-            buscarDadosPainéis();
-            pollingInterval = setInterval(buscarDadosPainéis, 3000);
-        }
-
-        function mudarAba(aba) {
-            currentTab = aba;
-            ['realtime', 'commission', 'predictive', 'esg', 'inventory', 'rules', 'orders', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
-                const el = document.getElementById(`t-${t}`);
-                if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
-            });
-            renderizar();
-        }
-
-        async function consultarQR(qrCode) {
-            const resultBox = document.getElementById('qr-result-box');
-            if(!qrCode) return;
-            try {
-                const res = await fetch(`/api/panels/qr/${encodeURIComponent(qrCode)}`, {
-                    headers: {'Authorization': `Bearer ${tokenJwt}`}
-                });
-                const p = await res.json();
-                if(!res.ok) throw new Error(p.detail || "Painel não encontrado.");
-
-                resultBox.innerHTML = `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}" style="margin-top:15px;">
-                        <h3>Cubículo Encontrado: ${p.id} - ${p.name}</h3>
-                        <p><strong>Local:</strong> ${p.location}</p>
-                        <p><strong>Gateway QR:</strong> ${p.gateway_qr}</p>
-                        <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
-                        <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
-                        <p><strong>Status:</strong> ${p.status}</p>
-                        <p><strong>Diagnóstico:</strong> ${p.recommendation}</p>
-                    </div>`;
-            } catch (err) {
-                resultBox.innerHTML = `<p style="color:#ef4444; margin-top:15px; font-weight:bold;">${err.message}</p>`;
-            }
-        }
-
-        function iniciarLeitorCamera() {
-            const readerContainer = document.getElementById('reader');
-            if(!readerContainer) return;
-            
-            if (html5QrCodeScanner) {
-                try { html5QrCodeScanner.clear(); } catch(e) {}
-            }
-
-            try {
-                html5QrCodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 }, false);
-                html5QrCodeScanner.render((decodedText) => {
-                    document.getElementById('qr-input-manual').value = decodedText;
-                    consultarQR(decodedText);
-                }, (error) => {});
-            } catch(e) {
-                console.error("Erro ao iniciar câmara:", e);
-                readerContainer.innerHTML = `<p style="color:#f59e0b; padding:15px; font-size:12px;">⚠️ Câmara indisponível ou bloqueada pelo navegador.</p>`;
-            }
-        }
-
-        function abrirModalPainel() { 
-            document.getElementById('modal-panel').style.display = 'flex'; 
-        }
-
-        function fecharModalPainel() { 
-            if (modalQrScanner) {
-                try { 
-                    modalQrScanner.clear().catch(() =>
+    <!--
