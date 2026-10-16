@@ -146,7 +146,7 @@
         let currentUser = '', currentCargo = '', tokenJwt = '';
         let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = [], historyData = {}, pollingInterval = null;
         let ws = null;
-        let activeChart = null;
+        let chartInstances = {};
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
 
@@ -280,7 +280,12 @@
                         historyData = data.history || {};
                         dadosGlobais = {};
                         data.panels.forEach(p => { dadosGlobais[p.id] = p; });
-                        renderizar();
+                        
+                        if (currentTab === 'predictive') {
+                            atualizarGraficosExistentes();
+                        } else {
+                            renderizar();
+                        }
                     }
                 }).catch(err => console.error(err));
         }
@@ -347,12 +352,14 @@
             const labels = records.map(r => r.timestamp);
             const temps = records.map(r => r.temperature);
 
-            if(activeChart) {
-                // Se já houver um gráfico instanciado, destrói para recriar limpo
-                // activeChart.destroy();
+            if(chartInstances[panelId]) {
+                chartInstances[panelId].data.labels = labels;
+                chartInstances[panelId].data.datasets[0].data = temps;
+                chartInstances[panelId].update('none');
+                return;
             }
 
-            new Chart(ctx, {
+            chartInstances[panelId] = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -368,6 +375,7 @@
                 },
                 options: {
                     responsive: true,
+                    animation: false,
                     plugins: { legend: { labels: { color: '#ffffff', font: { size: 10 } } } },
                     scales: {
                         x: { ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: '#065f46' } },
@@ -377,9 +385,24 @@
             });
         }
 
+        function atualizarGraficosExistentes() {
+            const lista = Object.values(dadosGlobais);
+            lista.forEach(p => {
+                if(document.getElementById(`chart-${p.id}`)) {
+                    renderizarChart(p.id);
+                } else {
+                    renderizar();
+                }
+            });
+        }
+
         function renderizar() {
             const container = document.getElementById('main-container');
             const lista = Object.values(dadosGlobais);
+
+            if (currentTab !== 'predictive') {
+                chartInstances = {};
+            }
 
             if (currentTab === 'demo' && currentCargo === 'CEO') {
                 container.innerHTML = `
@@ -443,7 +466,6 @@
                         <canvas id="chart-${p.id}" style="width:100%; max-height:160px; margin-top:10px;"></canvas>
                         <p style="margin-top:10px; font-size:11px; color:#9ca3af;">${p.recommendation}</p>
                     </div>`).join('');
-                // Renderiza os gráficos após inserir no DOM
                 setTimeout(() => { lista.forEach(p => renderizarChart(p.id)); }, 50);
             } else if (currentTab === 'esg') {
                 container.innerHTML = lista.map(p => `
