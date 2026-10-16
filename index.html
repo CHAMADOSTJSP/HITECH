@@ -80,7 +80,7 @@
         table.enterprise-table th, table.enterprise-table td { padding: 10px 15px; font-size: 11px; text-align: left; border-bottom: 1px solid #065f46; }
         table.enterprise-table th { background: #065f46; color: #10b981; text-transform: uppercase; }
 
-        #modal-inventory { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        #modal-inventory, #modal-panel { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
         .modal-box { background: #0f2319; border: 1px solid #10b981; padding: 25px; border-radius: 10px; width: 400px; }
     </style>
 </head>
@@ -118,6 +118,22 @@
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
                 <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalInventario()">Cancelar</button>
                 <button class="btn-action" onclick="submeterInventario()">Salvar Peça</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-panel" style="display:none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
+        <div class="modal-box" style="width: 420px;">
+            <h3 style="color:#10b981; margin-top:0;">⚡ Adicionar Novo Cubículo / Painel</h3>
+            <div class="input-group"><label>ID do Painel</label><input type="text" id="panel-id-input" placeholder="Ex: PANEL-04"></div>
+            <div class="input-group"><label>Nome Descritivo</label><input type="text" id="panel-name-input" placeholder="Ex: QGBT Setor B"></div>
+            <div class="input-group"><label>Localização</label><input type="text" id="panel-loc-input" placeholder="Ex: Fábrica 03 - Ala Norte"></div>
+            <div class="input-group"><label>Tensão Nominal</label><input type="text" id="panel-volt-input" value="380V AC"></div>
+            <div class="input-group"><label>Componente Crítico</label><input type="text" id="panel-comp-input" value="Disjuntor Principal"></div>
+            <div class="input-group"><label>Código Gateway QR</label><input type="text" id="panel-qr-input" placeholder="Ex: QR-GW-5001"></div>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+                <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalPainel()">Cancelar</button>
+                <button class="btn-action" onclick="submeterNovoPainel()">Registar Painel</button>
             </div>
         </div>
     </div>
@@ -244,312 +260,4 @@
                 html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 ESG</button>`;
                 html += `<button class="tab-btn" id="t-inventory" onclick="mudarAba('inventory')">📦 Almoxarifado</button>`;
             }
-            html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Ordens de Serviço</button>`;
-            if (currentCargo === 'CEO') {
-                html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
-                html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
-                html += `<button class="tab-btn" id="t-executive" onclick="mudarAba('executive')">📈 Relatório Executivo</button>`;
-                html += `<button class="tab-btn" id="t-webhooks" onclick="mudarAba('webhooks')">🔔 Webhooks</button>`;
-                html += `<button class="tab-btn" id="t-demo" onclick="mudarAba('demo')" style="background:#b91c1c; color:#fff;">🎬 Demo Vendas (Simulador)</button>`;
-            }
-            document.getElementById('nav-tabs-container').innerHTML = html;
-        }
-
-        function atualizarKPIs() {
-            const banner = document.getElementById('kpi-banner');
-            banner.style.display = 'grid';
-            banner.innerHTML = currentCargo === 'CEO' ? `
-                <div class="kpi-card"><h4>Risco</h4><span style="color:#ef4444;">Monitorizado</span></div>
-                <div class="kpi-card"><h4>Downtime</h4><span>R$ 14.500 / h</span></div>
-                <div class="kpi-card"><h4>Confiabilidade</h4><span>98.4%</span></div>
-                <div class="kpi-card"><h4>ESG</h4><span>124 kWh</span></div>
-            ` : `
-                <div class="kpi-card"><h4>Equipe</h4><span>100% Ativa</span></div>
-                <div class="kpi-card"><h4>MTTR</h4><span>32 min</span></div>
-                <div class="kpi-card"><h4>Eficiência</h4><span>99.1%</span></div>
-            `;
-        }
-
-        function buscarDadosPainéis() {
-            fetch('/api/panels', {headers: {'Authorization': `Bearer ${tokenJwt}`}})
-                .then(res => res.json())
-                .then(data => {
-                    if(data.panels) {
-                        billingData = data.billing || {};
-                        document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${billingData.plan_name})`;
-                        auditLogs = data.audit_logs || [];
-                        inventoryData = data.inventory || [];
-                        historyData = data.history || {};
-                        dadosGlobais = {};
-                        data.panels.forEach(p => { dadosGlobais[p.id] = p; });
-                        
-                        if (currentTab === 'predictive') {
-                            atualizarGraficosExistentes();
-                        } else if (currentTab !== 'commission') {
-                            renderizar();
-                        }
-                    }
-                }).catch(err => console.error(err));
-        }
-
-        function iniciarPolling() {
-            if (pollingInterval) clearInterval(pollingInterval);
-            buscarDadosPainéis();
-            pollingInterval = setInterval(buscarDadosPainéis, 3000);
-        }
-
-        function mudarAba(aba) {
-            currentTab = aba;
-            ['realtime', 'commission', 'predictive', 'esg', 'inventory', 'orders', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
-                const el = document.getElementById(`t-${t}`);
-                if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
-            });
-            renderizar();
-        }
-
-        async function consultarQR(qrCode) {
-            const resultBox = document.getElementById('qr-result-box');
-            if(!qrCode) return;
-            try {
-                const res = await fetch(`/api/panels/qr/${encodeURIComponent(qrCode)}`, {
-                    headers: {'Authorization': `Bearer ${tokenJwt}`}
-                });
-                const p = await res.json();
-                if(!res.ok) throw new Error(p.detail || "Painel não encontrado.");
-
-                resultBox.innerHTML = `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}" style="margin-top:15px;">
-                        <h3>Cubículo Encontrado: ${p.id} - ${p.name}</h3>
-                        <p><strong>Local:</strong> ${p.location}</p>
-                        <p><strong>Gateway QR:</strong> ${p.gateway_qr}</p>
-                        <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
-                        <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
-                        <p><strong>Status:</strong> ${p.status}</p>
-                        <p><strong>Diagnóstico:</strong> ${p.recommendation}</p>
-                    </div>`;
-            } catch (err) {
-                resultBox.innerHTML = `<p style="color:#ef4444; margin-top:15px; font-weight:bold;">${err.message}</p>`;
-            }
-        }
-
-        function iniciarLeitorCamera() {
-            const readerContainer = document.getElementById('reader');
-            if(!readerContainer) return;
-            try {
-                html5QrCodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
-                html5QrCodeScanner.render((decodedText) => {
-                    document.getElementById('qr-input-manual').value = decodedText;
-                    consultarQR(decodedText);
-                }, (error) => {});
-            } catch(e) {
-                console.error("Câmara indisponível:", e);
-            }
-        }
-
-        async function simularFalhaComercial(id) {
-            const res = await fetch('/api/demo/force-failure', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({panel_id: id})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); mudarAba('realtime'); } else { alert("Erro ao simular falha."); }
-        }
-
-        async function salvarWebhook(event) {
-            event.preventDefault();
-            const url = document.getElementById('webhook-url-input').value.trim();
-            const res = await fetch('/api/tenant/webhook', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({webhook_url: url})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); } else { alert("Erro ao salvar webhook."); }
-        }
-
-        function abrirModalInventario() { document.getElementById('modal-inventory').style.display = 'flex'; }
-        function fecharModalInventario() { document.getElementById('modal-inventory').style.display = 'none'; }
-
-        async function submeterInventario() {
-            const partName = document.getElementById('inv-part').value.trim();
-            const category = document.getElementById('inv-cat').value.trim();
-            const qtyChange = parseInt(document.getElementById('inv-qty').value);
-            const unitCost = parseFloat(document.getElementById('inv-cost').value);
-            const minThreshold = parseInt(document.getElementById('inv-min').value);
-
-            const res = await fetch('/api/inventory/update', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({part_name: partName, category: category, quantity_change: qtyChange, unit_cost: unitCost, min_threshold: minThreshold})
-            });
-            if(res.ok) { fecharModalInventario(); buscarDadosPainéis(); }
-        }
-
-        function renderizarChart(panelId) {
-            const ctx = document.getElementById(`chart-${panelId}`);
-            if(!ctx) return;
-            const records = historyData[panelId] || [];
-            const labels = records.map(r => r.timestamp);
-            const temps = records.map(r => r.temperature);
-
-            if(chartInstances[panelId]) {
-                chartInstances[panelId].data.labels = labels;
-                chartInstances[panelId].data.datasets[0].data = temps;
-                chartInstances[panelId].update('none');
-                return;
-            }
-
-            chartInstances[panelId] = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Temperatura (°C)',
-                        data: temps,
-                        borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.3
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    animation: false,
-                    plugins: { legend: { labels: { color: '#ffffff', font: { size: 10 } } } },
-                    scales: {
-                        x: { ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: '#065f46' } },
-                        y: { ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: '#065f46' } }
-                    }
-                }
-            });
-        }
-
-        function atualizarGraficosExistentes() {
-            const lista = Object.values(dadosGlobais);
-            lista.forEach(p => {
-                if(document.getElementById(`chart-${p.id}`)) {
-                    renderizarChart(p.id);
-                } else {
-                    renderizar();
-                }
-            });
-        }
-
-        function renderizar() {
-            const container = document.getElementById('main-container');
-            const lista = Object.values(dadosGlobais);
-
-            if (currentTab !== 'predictive') {
-                chartInstances = {};
-            }
-
-            if (currentTab === 'commission') {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px; margin: 0 auto;">
-                        <h3 style="color:#10b981; margin-top:0;">📷 Comissionamento e Leitura QR Code</h3>
-                        <p style="font-size:13px; color:#d1d5db;">Aponte a câmara para o código do gateway ou digite o código de fábrica (Ex: QR-GW-0010 ou PANEL-01):</p>
-                        
-                        <div style="margin-bottom: 20px;">
-                            <div class="input-group"><label>Código QR / ID Manual</label><input type="text" id="qr-input-manual" placeholder="Ex: QR-GW-0010"></div>
-                            <button type="button" class="btn-primary" onclick="consultarQR(document.getElementById('qr-input-manual').value.trim())">Consultar Cubículo</button>
-                        </div>
-
-                        <div id="reader" style="width: 100%; background: #06110b; border-radius: 6px; overflow: hidden;"></div>
-                        <div id="qr-result-box"></div>
-                    </div>`;
-                setTimeout(() => { iniciarLeitorCamera(); }, 100);
-                return;
-            }
-
-            if (currentTab === 'demo' && currentCargo === 'CEO') {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(42, 17, 17, 0.95); border: 1px solid #ef4444; padding: 25px; border-radius: 8px;">
-                        <h3 style="color:#ef4444; margin-top:0;">🎬 Simulação de Falha Crítica com Webhook Automático</h3>
-                        <p style="font-size:13px; color:#d1d5db;">Forçar falha gera notificação instantânea no endpoint configurado:</p>
-                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:15px; margin-top:20px;">
-                            ${lista.map(p => `
-                                <div style="background:rgba(15,35,25,0.9); border:1px solid #065f46; padding:15px; border-radius:6px;">
-                                    <h4 style="color:#10b981; margin:0 0 10px 0;">${p.id} -${p.name}</h4>
-                                    <p style="font-size:11px; color:#9ca3af;">Status: ${p.status}</p>
-                                    <button class="btn-action" style="background:#ef4444; color:#fff; width:100%; margin-top:10px;" onclick="simularFalhaComercial('${p.id}')">⚡ Disparar Alarme Crítico</button>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>`;
-                return;
-            }
-
-            if (currentTab === 'webhooks' && currentCargo === 'CEO') {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px;">
-                        <h3 style="color:#10b981; margin-top:0;">🔔 Webhook Automático para Alertas Críticos</h3>
-                        <p style="font-size:13px; color:#d1d5db;">Insira o endpoint para envio imediato de picos térmicos.</p>
-                        <form onsubmit="salvarWebhook(event)" style="margin-top: 15px;">
-                            <div class="input-group"><label>Endpoint URL</label><input type="text" id="webhook-url-input" value="${billingData.webhook_url || ''}" required></div>
-                            <button type="submit" class="btn-primary" style="margin-top: 10px;">Guardar Webhook</button>
-                        </form>
-                    </div>`;
-                return;
-            }
-
-            if (currentTab === 'inventory' && (currentCargo === 'CEO' || currentCargo === 'Gerente')) {
-                container.innerHTML = `<div style="grid-column: 1/-1;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3 style="color:#10b981; margin:0;">📦 Gestão de Inventário e Almoxarifado</h3>
-                        <button class="btn-action" onclick="abrirModalInventario()" style="background:#10b981; color:#000; font-weight:bold;">+ Adicionar Peça</button>
-                    </div>
-                    <table class="enterprise-table">
-                        <tr><th>Nome</th><th>Categoria</th><th>Stock</th><th>Mínimo</th><th>Custo</th><th>Estado</th></tr>
-                        ${inventoryData.map(i => `<tr><td>${i.part_name}</td><td>${i.category}</td><td>${i.quantity_in_stock}</td><td>${i.min_threshold}</td><td>R$ ${i.unit_cost.toFixed(2)}</td><td>ESTÁVEL</td></tr>`).join('')}
-                    </table>
-                </div>`;
-                return;
-            }
-
-            if (currentTab === 'realtime') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>${p.id} - ${p.name}</h3>
-                        <p><strong>Local:</strong> ${p.location}</p>
-                        <p><strong>Gateway QR:</strong> ${p.gateway_qr}</p>
-                        <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
-                        <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
-                        <p><strong>Status:</strong> ${p.status}</p>
-                    </div>`).join('');
-            } else if (currentTab === 'predictive') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>📈 Tendência Térmica - ${p.id}</h3>
-                        <p><strong>Componente:</strong> ${p.component}</p>
-                        <canvas id="chart-${p.id}" style="width:100%; max-height:160px; margin-top:10px;"></canvas>
-                        <p style="margin-top:10px; font-size:11px; color:#9ca3af;">${p.recommendation}</p>
-                    </div>`).join('');
-                setTimeout(() => { lista.forEach(p => renderizarChart(p.id)); }, 50);
-            } else if (currentTab === 'esg') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card">
-                        <h3>🌱 Sustentabilidade - ${p.id}</h3>
-                        <p><strong>Perdas:</strong> ${p.esg_waste_kwh} kWh/dia</p>
-                    </div>`).join('');
-            } else if (currentTab === 'orders') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card">
-                        <h3>O.S. - ${p.id}</h3>
-                        <p><strong>Equipamento:</strong> ${p.name}</p>
-                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Não atribuído'}</p>
-                    </div>`).join('');
-            } else if (currentTab === 'audit' && currentCargo === 'CEO') {
-                container.innerHTML = `<div style="grid-column: 1/-1;">
-                    <h3 style="color:#10b981; margin-bottom:15px;">Auditoria Imutável</h3>
-                    <table class="enterprise-table">
-                        <tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr>
-                        ${auditLogs.map(l => `<tr><td>${l.timestamp.split('.')[0]}</td><td>${l.user_name}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('')}
-                    </table>
-                </div>`;
-            }
-        }
-    </script>
-</body>
-</html>
+            html += `<button class="tab-btn" id="t-orders" onclick="m
