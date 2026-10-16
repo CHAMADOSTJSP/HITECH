@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>HITECH VoltGuard - SCADA Enterprise SaaS</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             margin: 0; padding: 0;
@@ -143,8 +144,9 @@
     <script>
         let currentTab = 'realtime';
         let currentUser = '', currentCargo = '', tokenJwt = '';
-        let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = [], pollingInterval = null;
+        let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = [], historyData = {}, pollingInterval = null;
         let ws = null;
+        let activeChart = null;
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
 
@@ -236,7 +238,7 @@
         function construirAbas() {
             let html = `<button class="tab-btn active" id="t-realtime" onclick="mudarAba('realtime')">📊 Tempo Real</button>`;
             if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
-                html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">🤖 IA Preditiva</button>`;
+                html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">📈 Tendência Térmica</button>`;
                 html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 ESG</button>`;
                 html += `<button class="tab-btn" id="t-inventory" onclick="mudarAba('inventory')">📦 Almoxarifado</button>`;
             }
@@ -275,6 +277,7 @@
                         document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${billingData.plan_name})`;
                         auditLogs = data.audit_logs || [];
                         inventoryData = data.inventory || [];
+                        historyData = data.history || {};
                         dadosGlobais = {};
                         data.panels.forEach(p => { dadosGlobais[p.id] = p; });
                         renderizar();
@@ -335,6 +338,43 @@
                 body: JSON.stringify({part_name: partName, category: category, quantity_change: qtyChange, unit_cost: unitCost, min_threshold: minThreshold})
             });
             if(res.ok) { fecharModalInventario(); buscarDadosPainéis(); }
+        }
+
+        function renderizarChart(panelId) {
+            const ctx = document.getElementById(`chart-${panelId}`);
+            if(!ctx) return;
+            const records = historyData[panelId] || [];
+            const labels = records.map(r => r.timestamp);
+            const temps = records.map(r => r.temperature);
+
+            if(activeChart) {
+                // Se já houver um gráfico instanciado, destrói para recriar limpo
+                // activeChart.destroy();
+            }
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Temperatura (°C)',
+                        data: temps,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { labels: { color: '#ffffff', font: { size: 10 } } } },
+                    scales: {
+                        x: { ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: '#065f46' } },
+                        y: { ticks: { color: '#9ca3af', font: { size: 9 } }, grid: { color: '#065f46' } }
+                    }
+                }
+            });
         }
 
         function renderizar() {
@@ -398,11 +438,13 @@
             } else if (currentTab === 'predictive') {
                 container.innerHTML = lista.map(p => `
                     <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>🤖 Previsão IA - ${p.id}</h3>
+                        <h3>📈 Tendência Térmica - ${p.id}</h3>
                         <p><strong>Componente:</strong> ${p.component}</p>
-                        <p><strong>Falha Estimada:</strong> ${p.predictive_failure_hours} horas</p>
-                        <p><strong>Diagnóstico:</strong> ${p.recommendation}</p>
+                        <canvas id="chart-${p.id}" style="width:100%; max-height:160px; margin-top:10px;"></canvas>
+                        <p style="margin-top:10px; font-size:11px; color:#9ca3af;">${p.recommendation}</p>
                     </div>`).join('');
+                // Renderiza os gráficos após inserir no DOM
+                setTimeout(() => { lista.forEach(p => renderizarChart(p.id)); }, 50);
             } else if (currentTab === 'esg') {
                 container.innerHTML = lista.map(p => `
                     <div class="panel-card">
