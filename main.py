@@ -1,6 +1,7 @@
 import os
 import io
 import random
+import hashlib
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -8,14 +9,11 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 import jwt
-from passlib.context import CryptContext
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# Configuração robusta de Hashing de Senhas
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
+# Configuração de Segurança baseada em SHA-256 nativo (Zero falhas de dependência em nuvem)
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
@@ -66,26 +64,23 @@ class TenantSubscriptionModel(Base):
 class UserModel(Base):
     __tablename__ = "users"
     username = Column(String, primary_key=True, index=True)
-    password = Column(String, nullable=False) # Mapeamento unificado e compatível com a BD persistente
+    password = Column(String, nullable=False)
     role = Column(String, default="CEO")
     tenant_id = Column(String, default="HITECH-DEFAULT")
     plan = Column(String, default="Enterprise")
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition (Secure)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition (Native Secure)")
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 def verify_password(plain_password: str, stored_password: str) -> bool:
     try:
         if not stored_password:
             return False
-        # Suporte duplo: valida bcrypt e aceita texto plano por compatibilidade de transição
-        if stored_password.startswith("$2b$") or stored_password.startswith("$2a$"):
-            return pwd_context.verify(plain_password, stored_password)
-        return plain_password == stored_password
+        return hashlib.sha256(plain_password.encode('utf-8')).hexdigest() == stored_password
     except Exception:
         return plain_password == stored_password
 
@@ -106,8 +101,20 @@ def get_db():
 def init_db():
     db = SessionLocal()
     try:
-        user_rafael = db.query(UserModel).filter(UserModel.username == "RafaelFelipe").first()
-        if not user_rafael:
+        Base.metadata.create_all(bind=engine)
+        
+        # Garante que os utilizadores padrão estejam sempre atualizados e corretos (Upsert via merge)
+        default_users = [
+            UserModel(username="RafaelFelipe", password=hash_password("123456"), role="CEO", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+            UserModel(username="GerenteCarlos", password=hash_password("123456"), role="Gerente", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+            UserModel(username="TecnicoMarcos", password=hash_password("123456"), role="Técnico de Campo", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+            UserModel(username="InstaladorAna", password=hash_password("123456"), role="Instalador", tenant_id="HITECH-DEFAULT", plan="Enterprise")
+        ]
+        for u in default_users:
+            db.merge(u)
+
+        # Cria painéis iniciais apenas se a tabela estiver vazia
+        if db.query(PanelModel).count() == 0:
             initial_panels = [
                 PanelModel(id="PANEL-01", tenant_id="HITECH-DEFAULT", name="Cubículo Geral de Média Tensão (MT)", location="Subestação Principal - Ribeirão Preto", voltage="13.8 kV", current=454.23, temperature=70.58, gateway_qr="QR-GW-0010", status="NORMAL", component="Barramento de Cobre", predictive_failure_hours=145, recommendation="Inspeção termográfica de rotina em 60 dias.", esg_waste_kwh=0.8),
                 PanelModel(id="PANEL-02", tenant_id="HITECH-DEFAULT", name="QGBT - Alimentação de Baixa Tensão", location="Fábrica 01 - Setor de Utilidades", voltage="380V AC", current=215.5, temperature=91.19, gateway_qr="QR-GW-0070", status="CRITICO", component="Contator Geral 400A", predictive_failure_hours=18, recommendation="Substituição imediata do contator devido a desgaste.", esg_waste_kwh=4.5),
@@ -115,23 +122,12 @@ def init_db():
             ]
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition inicializado com segurança nativa."))
             
-            default_users = [
-                UserModel(username="RafaelFelipe", password=hash_password("123456"), role="CEO", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
-                UserModel(username="GerenteCarlos", password=hash_password("123456"), role="Gerente", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
-                UserModel(username="TecnicoMarcos", password=hash_password("123456"), role="Técnico de Campo", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
-                UserModel(username="InstaladorAna", password=hash_password("123456"), role="Instalador", tenant_id="HITECH-DEFAULT", plan="Enterprise")
-            ]
-            db.add_all(default_users)
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition inicializado com sucesso."))
-            db.commit()
-        else:
-            # Assegura que o admin tem sempre a senha correta actualizada
-            user_rafael.password = hash_password("123456")
-            db.commit()
+        db.commit()
     except Exception as e:
         db.rollback()
-        print(f"Erro na inicialização da BD: {e}")
+        print(f"Erro crítico na inicialização da BD: {e}")
     finally:
         db.close()
 
