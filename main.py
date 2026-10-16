@@ -99,7 +99,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 10 (Inventory & Spare Parts Hub)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 11 (Commercial & Visual Hub)")
 
 class ConnectionManager:
     def __init__(self):
@@ -202,7 +202,7 @@ def init_db():
             db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Contator Geral 400A", category="Comutação", quantity_in_stock=4, min_threshold=2, unit_cost=450.0))
             db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Sensor Termopar Tipo K", category="Sensores", quantity_in_stock=15, min_threshold=5, unit_cost=80.0))
             db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Disjuntor Caixa Moldada 250A", category="Proteção", quantity_in_stock=3, min_threshold=2, unit_cost=950.0))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 10 (Inventário de Peças) inicializado com sucesso."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 11 (Comercial & Visual Hub) inicializado com sucesso."))
             
         db.commit()
     except Exception as e:
@@ -245,6 +245,28 @@ def login(credentials: dict, db: Session = Depends(get_db)):
     
     token = jwt.encode({"sub": db_user.username, "role": db_user.role, "tenant_id": db_user.tenant_id, "plan": db_user.plan, "exp": datetime.utcnow() + timedelta(days=1)}, SECRET_KEY, algorithm="HS256")
     return {"access_token": token, "token_type": "bearer", "role": db_user.role, "plan": db_user.plan}
+
+@app.post("/api/tenant/register")
+def register_tenant(data: dict, db: Session = Depends(get_db)):
+    tenant_id = data.get("tenant_id", "").upper().strip()
+    admin_user = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    
+    if not tenant_id or not admin_user or not password:
+        raise HTTPException(status_code=400, detail="Dados de registo incompletos.")
+    
+    existing = db.query(UserModel).filter(UserModel.username == admin_user).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Nome de utilizador já existe.")
+        
+    new_user = UserModel(username=admin_user, password=hash_password(password), role="CEO", tenant_id=tenant_id, plan="Enterprise")
+    db.merge(new_user)
+    db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
+    db.add(InventoryModel(tenant_id=tenant_id, part_name="Contator Inicial 400A", category="Comutação", quantity_in_stock=5, min_threshold=2, unit_cost=450.0))
+    db.add(AuditLogModel(tenant_id=tenant_id, user_name=admin_user, role="CEO", action="REGISTO_TENANT", details=f"Nova organização {tenant_id} registada com sucesso."))
+    db.commit()
+    
+    return {"status": "success", "message": f"Organização {tenant_id} criada com sucesso! Pode efetuar o login."}
 
 @app.get("/api/panels")
 def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -310,7 +332,7 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
 @app.post("/api/inventory/update")
 def update_inventory_item(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
-        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem gerir o inventário de peças.")
+        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem gerir o inventário.")
     
     if not data:
         raise HTTPException(status_code=400, detail="Dados em falta.")
@@ -344,27 +366,10 @@ def update_inventory_item(data: dict, db: Session = Depends(get_db), current_use
         user_name=current_user.username,
         role=current_user.role,
         action="INVENTARIO_ATUALIZACAO",
-        details=f"Peça '{part_name}' atualizada. Ajuste de stock: {qty_change} unidades."
+        details=f"Peça '{part_name}' atualizada. Ajuste: {qty_change} unidades."
     ))
     db.commit()
-    return {"status": "success", "message": f"Inventário atualizado para a peça '{part_name}' com sucesso!"}
-
-@app.post("/api/pwa/subscribe")
-def pwa_subscribe(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    endpoint = data.get("endpoint", "") if data else ""
-    if not endpoint:
-        raise HTTPException(status_code=400, detail="Endpoint push em falta.")
-    
-    db.add(PushSubscriptionModel(username=current_user.username, endpoint_data=endpoint))
-    db.add(AuditLogModel(
-        tenant_id=current_user.tenant_id,
-        user_name=current_user.username,
-        role=current_user.role,
-        action="PWA_PUSH_SUBSCRIBE",
-        details=f"Dispositivo móvel registado para notificações push para o utilizador {current_user.username}."
-    ))
-    db.commit()
-    return {"status": "success", "message": "Dispositivo registado com sucesso para receber alertas PWA!"}
+    return {"status": "success", "message": f"Inventário atualizado para '{part_name}' com sucesso!"}
 
 @app.post("/api/ai/predictive-analysis")
 def run_ai_predictive_analysis(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -384,13 +389,13 @@ def run_ai_predictive_analysis(data: dict, db: Session = Depends(get_db), curren
     
     if temp > 90.0:
         predicted_hours = max(4, int(200.0 - (temp * 1.5)))
-        ai_recommendation = f"[IA PREDITIVA] Risco crítico de degradação ({risk_score}%). Anomalia térmica detetada em séries temporais. Recomenda-se intervenção imediata."
+        ai_recommendation = f"[IA PREDITIVA] Risco crítico de degradação ({risk_score}%). Anomalia térmica detetada. Intervenção imediata recomendada."
     elif temp > 75.0:
         predicted_hours = int(350.0 - (temp * 2.0))
-        ai_recommendation = f"[IA PREDITIVA] Atenção moderada ({risk_score}%). Tendência de aquecimento acima da linha de base nominal."
+        ai_recommendation = f"[IA PREDITIVA] Atenção moderada ({risk_score}%). Tendência de aquecimento acima da linha de base."
     else:
         predicted_hours = 720
-        ai_recommendation = f"[IA PREDITIVA] Comportamento estável ({risk_score}% de risco). Nenhuma anomalia detetada nos algoritmos de desvio."
+        ai_recommendation = f"[IA PREDITIVA] Comportamento estável ({risk_score}% de risco). Sem anomalias detetadas."
 
     panel.predictive_failure_hours = predicted_hours
     panel.recommendation = ai_recommendation
@@ -400,7 +405,7 @@ def run_ai_predictive_analysis(data: dict, db: Session = Depends(get_db), curren
         user_name=current_user.username,
         role=current_user.role,
         action="IA_PREDICTIVE_ANALYSIS",
-        details=f"Análise de IA executada para o painel {panel_id}. Risco estimado: {risk_score}%. Previsão: {predicted_hours}h."
+        details=f"Análise executada para o painel {panel_id}. Risco: {risk_score}%. Previsão: {predicted_hours}h."
     ))
     db.commit()
 
@@ -422,52 +427,6 @@ async def websocket_panels_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
-@app.post("/api/iot/telemetry")
-async def ingest_iot_telemetry(data: dict, db: Session = Depends(get_db)):
-    if not data:
-        raise HTTPException(status_code=400, detail="Dados de telemetria em falta.")
-    
-    panel_id = data.get("panel_id")
-    tenant_id = data.get("tenant_id", "HITECH-DEFAULT").upper().strip()
-    temperature = data.get("temperature")
-    current = data.get("current")
-    status_val = data.get("status", "NORMAL")
-    
-    panel = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == tenant_id).first()
-    if not panel:
-        raise HTTPException(status_code=404, detail="Painel ou organização não encontrada.")
-    
-    if temperature is not None:
-        panel.temperature = float(temperature)
-    if current is not None:
-        panel.current = float(current)
-    if status_val:
-        panel.status = str(status_val)
-        
-    if panel.temperature > 95.0:
-        panel.status = "CRITICO"
-        panel.recommendation = "[IoT] Alerta de temperatura extrema registada em campo!"
-
-    db.add(AuditLogModel(
-        tenant_id=tenant_id, 
-        user_name="GATEWAY_IOT", 
-        role="SYSTEM", 
-        action="TELEMETRIA_CAMPO", 
-        details=f"Telemetria recebida para {panel_id}: {panel.temperature}°C, {panel.current}A."
-    ))
-    db.commit()
-
-    await manager.broadcast({
-        "event": "TELEMETRY_UPDATE",
-        "tenant_id": tenant_id,
-        "panel_id": panel_id,
-        "temperature": panel.temperature,
-        "current": panel.current,
-        "status": panel.status
-    })
-
-    return {"status": "success", "message": f"Telemetria atualizada para o painel {panel_id}."}
-
 @app.get("/api/export/executive-report")
 def export_executive_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
@@ -478,7 +437,7 @@ def export_executive_report(db: Session = Depends(get_db), current_user: User = 
     
     output = io.StringIO()
     output.write("====================================================\n")
-    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO (FASE 10 - INVENTARIO)\n")
+    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO COMERCIAL\n")
     output.write(f" Organizacao: {current_user.tenant_id} | Data: {datetime.utcnow()}\n")
     output.write("====================================================\n\n")
     
@@ -491,7 +450,7 @@ def export_executive_report(db: Session = Depends(get_db), current_user: User = 
         output.write(f"- Peca: {i.part_name} | Categoria: {i.category} | Stock: {i.quantity_in_stock} (Min: {i.min_threshold}) | Custo Unit.: R$ {i.unit_cost}\n")
         
     output.seek(0)
-    filename = f"hitech_executive_report_inventory_{current_user.tenant_id}.txt"
+    filename = f"hitech_executive_report_commercial_{current_user.tenant_id}.txt"
     return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @app.get("/")
