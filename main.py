@@ -8,7 +8,6 @@ import io
 
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
-# Modelos Pydantic
 class LoginPayload(BaseModel):
     username: str
     password: str
@@ -48,7 +47,6 @@ class ForceFailure(BaseModel):
 class AlertDispatch(BaseModel):
     panel_id: str
 
-# Base de dados simulada em memória
 db_tenants = {
     "HITECH-DEFAULT": {
         "plan_name": "Enterprise",
@@ -106,7 +104,6 @@ db_inventory = [
     {"part_name": "Módulo Retificador 50A", "category": "Alimentação", "quantity_in_stock": 5, "min_threshold": 2, "unit_cost": 1200.0}
 ]
 
-# Rota unificada de autenticação (Suporta JSON e Form Data)
 @app.post("/api/token")
 async def login_access_token(payload: LoginPayload = None, form_data: OAuth2PasswordRequestForm = Depends()):
     username = payload.username if payload else form_data.username
@@ -235,5 +232,5 @@ def validate_pin(data: PinValidation):
         return {"message": "Assinatura NR-10 validada com sucesso."}
     raise HTTPException(status_code=400, detail="PIN inválido.")
 
-# Montar pasta estática por último
+# Montar os ficheiros estáticos por último para servir a interface
 app.mount("/", StaticFiles(directory=".", html=True), name="static")
