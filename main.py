@@ -14,7 +14,6 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# Configuração de Segurança baseada em SHA-256 nativo (Zero falhas no Render)
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
@@ -499,4 +498,38 @@ async def dispatch_critical_alert(data: dict, background_tasks: BackgroundTasks,
     db.commit()
     return {"status": "success", "message": f"Alerta crítico despachado com sucesso para {webhook_destino}!"}
 
-@app.post("/api/validate-nr
+@app.post("/api/validate-nr10-pin")
+def validate_nr10_pin(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not data or data.get("pin") != "1010":
+        raise HTTPException(status_code=400, detail="PIN incorreto.")
+    panel = db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado.")
+    panel.assigned_to = current_user.username
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="NR10", details=f"Assumido no painel {panel.id}"))
+    db.commit()
+    return {"status": "success", "message": "Validação OK."}
+
+@app.post("/api/panels/register")
+def register_panel(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Instalador"]:
+        raise HTTPException(status_code=403, detail="Não autorizado.")
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados em falta.")
+    panel_id = data.get("panel_id")
+    if db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first():
+        raise HTTPException(status_code=400, detail="Painel já existe.")
+    
+    db.add(PanelModel(
+        id=panel_id, tenant_id=current_user.tenant_id, 
+        name=data.get("name"), location=data.get("location"), 
+        voltage=data.get("voltage"), gateway_qr=data.get("gateway_qr"), 
+        status="NORMAL", current=150.0, temperature=50.0
+    ))
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="COMISSIONAMENTO", details=f"Painel {panel_id} registado."))
+    db.commit()
+    return {"status": "success", "message": "Registado com sucesso."}
+
+@app.get("/")
+def serve_index():
+    return FileResponse("index.html")
