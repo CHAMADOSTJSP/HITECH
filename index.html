@@ -2,495 +2,166 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>HITECH VoltGuard - SCADA Enterprise SaaS</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" type="text/javascript"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HITECH VoltGuard SCADA Enterprise</title>
     <style>
         body {
-            margin: 0; padding: 0;
             font-family: Arial, sans-serif;
-            background-color: #0b1a12;
-            background-image: linear-gradient(rgba(11, 26, 18, 0.85), rgba(11, 26, 18, 0.90)), url('/logo.jpg');
-            background-size: cover; background-position: center; background-repeat: no-repeat;
-            color: #ffffff; height: 100vh;
-            display: flex; justify-content: center; align-items: center;
+            background-color: #121212;
+            color: #e0e0e0;
+            padding: 20px;
+            margin: 0;
         }
-        #login-screen, #register-screen {
-            background: rgba(15, 35, 25, 0.95);
-            border: 1px solid #10b981;
-            padding: 30px; border-radius: 12px; width: 360px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.8); text-align: center;
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
-        h2 { margin-bottom: 5px; color: #10b981; font-size: 20px; }
-        p.sub { font-size: 11px; color: #9ca3af; margin-bottom: 20px; text-transform: uppercase; }
-        .input-group { margin-bottom: 15px; text-align: left; }
-        label { display: block; font-size: 10px; color: #9ca3af; margin-bottom: 5px; text-transform: uppercase; font-weight: bold; }
-        input, select, textarea {
-            width: 100%; padding: 8px; background: #06110b;
-            border: 1px solid #065f46; border-radius: 6px; color: #fff;
-            box-sizing: border-box; font-size: 12px; margin-top: 4px;
+        .btn-simular {
+            background-color: #dc3545;
+            color: #fff;
+            border: none;
+            padding: 12px 20px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 20px;
         }
-        button.btn-primary {
-            width: 100%; padding: 10px; background: #10b981;
-            border: none; border-radius: 6px; color: #000;
-            font-weight: bold; cursor: pointer; margin-top: 5px;
+        .btn-simular:hover {
+            background-color: #bd2130;
         }
-        button.btn-primary:hover { background: #059669; color: #fff; }
-        .link-toggle { font-size: 11px; color: #34d399; cursor: pointer; margin-top: 15px; display: block; text-decoration: underline; }
-        #error-msg, #reg-error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
-
-        #dashboard-screen {
-            display: none; position: absolute; top: 0; left: 0;
-            width: 100vw; height: 100vh; background: rgba(11, 26, 18, 0.95);
-            box-sizing: border-box; padding: 20px 40px; overflow-y: auto;
+        .btn-acao {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px 0;
         }
-        .dash-header {
-            display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #10b98155; padding-bottom: 15px; margin-bottom: 20px;
+        /* Container robusto para impedir o colapso da câmera no celular */
+        #qr-reader {
+            width: 100%;
+            min-height: 320px;
+            background-color: #2c2c2c;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-top: 15px;
         }
-        .dash-header h1 { font-size: 18px; color: #10b981; margin: 0; }
-        .user-info { display: flex; align-items: center; gap: 15px; font-size: 13px; }
-        
-        .badge-cargo { background: #047857; color: #ffffff; border: 1px solid #34d399; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
-        .badge-tenant { background: #1e3a8a; color: #93c5fd; border: 1px solid #3b82f6; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: bold; }
-        .btn-logout { background: #ef4444; border: none; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; }
-        
-        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-        .tab-btn { background: #06110b; border: 1px solid #065f46; color: #9ca3af; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; }
-        .tab-btn.active { background: #10b981; color: #000; border-color: #10b981; }
-
-        .kpi-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .kpi-card { background: rgba(17, 42, 29, 0.9); border: 1px solid #065f46; padding: 15px; border-radius: 8px; text-align: center; }
-        .kpi-card h4 { margin: 0 0 5px 0; font-size: 11px; color: #9ca3af; text-transform: uppercase; }
-        .kpi-card span { font-size: 18px; font-weight: bold; color: #10b981; }
-
-        .panels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
-        .panel-card { background: rgba(17, 42, 29, 0.95); border: 1px solid #065f46; border-left: 5px solid #10b981; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-        .panel-card.critico { border-left-color: #ef4444; background: rgba(42, 17, 17, 0.95); border-color: #7f1d1d; }
-        .panel-card h3 { margin: 0 0 10px 0; font-size: 15px; color: #10b981; }
-        .panel-card.critico h3 { color: #ef4444; }
-        .panel-card p { margin: 6px 0; font-size: 12px; color: #d1d5db; }
-        
-        .action-box { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); }
-        .btn-action { background: #10b981; border: none; color: #000; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px; margin-right: 5px; margin-top: 5px; }
-        .btn-action:hover { background: #059669; color: #fff; }
-
-        table.enterprise-table { width: 100%; border-collapse: collapse; background: rgba(17, 42, 29, 0.95); border: 1px solid #065f46; border-radius: 8px; overflow: hidden; }
-        table.enterprise-table th, table.enterprise-table td { padding: 10px 15px; font-size: 11px; text-align: left; border-bottom: 1px solid #065f46; }
-        table.enterprise-table th { background: #065f46; color: #10b981; text-transform: uppercase; }
-
-        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-box { background: #0f2319; border: 1px solid #10b981; padding: 25px; border-radius: 10px; width: 400px; }
+        #qr-reader video {
+            object-fit: cover !important;
+            width: 100% !important;
+            height: 100% !important;
+        }
     </style>
 </head>
 <body>
 
-    <div id="login-screen">
-        <h2>HITECH VoltGuard</h2>
-        <p class="sub">SCADA Enterprise SaaS</p>
-        <div class="input-group"><label>Usuário</label><input type="text" id="usuario" value="RafaelFelipe"></div>
-        <div class="input-group"><label>Senha</label><input type="password" id="senha" value="123456"></div>
-        <button type="button" class="btn-primary" onclick="realizarLogin()">Acessar Plataforma</button>
-        <span class="link-toggle" onclick="mostrarRegisto(true)">Registar Nova Empresa (Tenant)</span>
-        <div id="error-msg"></div>
+    <div class="container">
+        <h2>VoltGuard SCADA - Painel de Controle</h2>
+        <hr style="border: 0.5px solid #333; margin-bottom: 20px;">
+
+        <!-- 1. Simulador e Webhook -->
+        <h3>Simulador Comercial</h3>
+        <button class="btn-simular" onclick="executarSimulacaoEWebhook('PANEL-01')">
+            ⚡ Forçar Falha Crítica (PANEL-01)
+        </button>
+
+        <hr style="border: 0.5px solid #333; margin: 20px 0;">
+
+        <!-- 2. Comissionamento por QR Code -->
+        <h3>Comissionamento por QR Code</h3>
+        <p style="font-size: 14px; color: #aaa;">Aproxime o código do equipamento para mapeamento.</p>
+        
+        <button id="btn-iniciar-scanner" class="btn-acao" onclick="iniciarScannerMobile()">📷 Abrir Câmera</button>
+        <button id="btn-parar-scanner" class="btn-acao" onclick="pararScanner()" style="background-color: #6c757d; display: none;">⏹️ Fechar Câmera</button>
+
+        <!-- Elemento de renderização do QR Code -->
+        <div id="qr-reader"></div>
     </div>
 
-    <div id="register-screen" style="display:none;">
-        <h2>Nova Organização</h2>
-        <p class="sub">Self-Service Onboarding SaaS</p>
-        <div class="input-group"><label>ID da Organização (Tenant)</label><input type="text" id="reg-tenant" placeholder="Ex: INDUSTRIA-ABC"></div>
-        <div class="input-group"><label>Usuário CEO</label><input type="text" id="reg-user" placeholder="Ex: DiretorJoao"></div>
-        <div class="input-group"><label>Senha</label><input type="password" id="reg-pass" placeholder="••••••••"></div>
-        <button type="button" class="btn-primary" onclick="registarTenant()">Criar Conta SaaS</button>
-        <span class="link-toggle" onclick="mostrarRegisto(false)">← Voltar ao Login</span>
-        <div id="reg-error-msg"></div>
-    </div>
-
-    <div id="modal-overlay">
-        <div class="modal-box">
-            <h3>Validação de Segurança NR-10</h3>
-            <p style="font-size: 11px; color: #9ca3af;">Insira seu PIN (1010):</p>
-            <input type="password" id="pin-input" maxlength="4" style="text-align:center; font-size:16px; letter-spacing:4px;">
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModal()">Cancelar</button>
-                <button class="btn-action" onclick="validarPinNR10()">Assinar</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="dashboard-screen">
-        <div class="dash-header">
-            <div>
-                <h1>HITECH VoltGuard SCADA Enterprise</h1>
-                <span>Plataforma Multi-Tenant SaaS Industrial</span>
-            </div>
-            <div class="user-info">
-                <span class="badge-tenant" id="tenant-display">-</span>
-                <span>Usuário: <strong id="user-display">-</strong></span>
-                <span class="badge-cargo" id="cargo-display">-</span>
-                <button class="btn-logout" onclick="location.reload()">Sair</button>
-            </div>
-        </div>
-
-        <div id="kpi-banner" class="kpi-container" style="display:none;"></div>
-        <div class="nav-tabs" id="nav-tabs-container"></div>
-        <div id="main-container" class="panels-grid"></div>
-    </div>
+    <!-- Biblioteca Oficial html5-qrcode via CDN -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
     <script>
-        let currentTab = 'realtime';
-        let currentUser = '', currentCargo = '', tokenJwt = '';
-        let dadosGlobais = {}, auditLogs = [], billingData = {}, painelAlvo = null, pollingInterval = null;
-        let html5QrCode = null;
+        let html5QrcodeScanner = null;
 
-        function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
-
-        function mostrarRegisto(mostrar) {
-            document.getElementById('login-screen').style.display = mostrar ? 'none' : 'block';
-            document.getElementById('register-screen').style.display = mostrar ? 'block' : 'none';
-        }
-
-        async function registarTenant() {
-            const tenant = document.getElementById('reg-tenant').value.trim();
-            const user = document.getElementById('reg-user').value.trim();
-            const pass = document.getElementById('reg-pass').value.trim();
-            const errEl = document.getElementById('reg-error-msg');
-
+        // Disparo do Webhook para o Telegram
+        async function executarSimulacaoEWebhook(panelId) {
             try {
-                const res = await fetch('/api/tenant/register', {
+                const response = await fetch('/api/v1/webhook/trigger', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({tenant_id: tenant, username: user, password: pass})
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        panel_id: panelId,
+                        status: "CRÍTICO (SOBREAQUECIMENTO)",
+                        message: "Temperatura do barramento atingiu 88°C no painel monitorado."
+                    })
                 });
-                const data = await res.json();
-                if(!res.ok) throw new Error(data.detail || "Erro ao registar.");
-                alert(data.message);
-                mostrarRegisto(false);
-            } catch (err) {
-                errEl.innerText = err.message;
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert(`✅ Alerta enviado com sucesso para o seu Telegram!\nPainel: ${panelId}`);
+                } else {
+                    alert(`⚠️ Erro: ${data.detail || 'Falha ao acionar webhook'}`);
+                }
+            } catch (error) {
+                console.error("Erro na requisição:", error);
+                alert("Erro de conexão com o servidor ao disparar o webhook.");
             }
         }
 
-        async function realizarLogin() {
-            const usuario = document.getElementById('usuario').value.trim();
-            const senha = document.getElementById('senha').value.trim();
-            const errEl = document.getElementById('error-msg');
+        // Leitor de QR Code adaptado para dispositivos móveis
+        function iniciarScannerMobile() {
+            document.getElementById('btn-iniciar-scanner').style.display = 'none';
+            document.getElementById('btn-parar-scanner').style.display = 'inline-block';
 
-            try {
-                const res = await fetch('/api/token', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: usuario, password: senha})
+            // Timeout de segurança para calcular as dimensões do DOM no mobile antes de ligar a câmera
+            setTimeout(() => {
+                if (!html5QrcodeScanner) {
+                    html5QrcodeScanner = new Html5Qrcode("qr-reader");
+                }
+
+                const config = {
+                    fps: 10,
+                    qrbox: { width: 220, height: 220 },
+                    aspectRatio: 1.0
+                };
+
+                html5QrcodeScanner.start(
+                    { facingMode: "environment" }, // Força a câmera traseira do celular
+                    config,
+                    (decodedText, decodedResult) => {
+                        alert(`🔍 Equipamento Comissionado: ${decodedText}`);
+                        pararScanner();
+                    },
+                    (errorMessage) => {
+                        // Ignora falhas contínuas de varredura de frame
+                    }
+                ).catch((err) => {
+                    console.error("Erro ao iniciar câmera:", err);
+                    alert("Não foi possível acessar a câmera. Verifique se deu permissão e se está em HTTPS.");
+                    pararScanner();
                 });
-                const data = await res.json();
-                if(!res.ok) throw new Error(data.detail || "Erro no login.");
-
-                tokenJwt = data.access_token;
-                currentCargo = data.role;
-                currentUser = usuario;
-
-                document.getElementById('user-display').innerText = formatarNome(usuario);
-                document.getElementById('cargo-display').innerText = currentCargo;
-                document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('dashboard-screen').style.display = 'block';
-
-                construirAbas();
-                atualizarKPIs();
-                iniciarPolling();
-            } catch (err) {
-                errEl.innerText = err.message;
-            }
+            }, 150);
         }
 
-        function construirAbas() {
-            let html = `<button class="tab-btn active" id="t-realtime" onclick="mudarAba('realtime')">📊 Tempo Real</button>`;
-            if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
-                html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">🤖 IA Preditiva</button>`;
-                html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 ESG</button>`;
-            }
-            html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Ordens de Serviço</button>`;
-            if (currentCargo === 'Instalador' || currentCargo === 'CEO') {
-                html += `<button class="tab-btn" id="t-commission" onclick="mudarAba('commission')">🛠️ Comissionamento</button>`;
-            }
-            if (currentCargo === 'CEO') {
-                html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
-                html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
-                html += `<button class="tab-btn" id="t-executive" onclick="mudarAba('executive')">📈 Relatório Executivo</button>`;
-                html += `<button class="tab-btn" id="t-webhooks" onclick="mudarAba('webhooks')">🔔 Webhooks</button>`;
-                html += `<button class="tab-btn" id="t-demo" onclick="mudarAba('demo')" style="background:#b91c1c; color:#fff;">🎬 Demo Vendas (Simulador)</button>`;
-            }
-            document.getElementById('nav-tabs-container').innerHTML = html;
-        }
-
-        function atualizarKPIs() {
-            const banner = document.getElementById('kpi-banner');
-            banner.style.display = 'grid';
-            banner.innerHTML = currentCargo === 'CEO' ? `
-                <div class="kpi-card"><h4>Risco</h4><span style="color:#ef4444;">1 Crítico</span></div>
-                <div class="kpi-card"><h4>Downtime</h4><span>R$ 14.500 / h</span></div>
-                <div class="kpi-card"><h4>Confiabilidade</h4><span>98.4%</span></div>
-                <div class="kpi-card"><h4>ESG</h4><span>124 kWh</span></div>
-            ` : `
-                <div class="kpi-card"><h4>Equipe</h4><span>100% Ativa</span></div>
-                <div class="kpi-card"><h4>MTTR</h4><span>32 min</span></div>
-                <div class="kpi-card"><h4>Eficiência</h4><span>99.1%</span></div>
-            `;
-        }
-
-        function iniciarPolling() {
-            if (pollingInterval) clearInterval(pollingInterval);
-            
-            function buscar() {
-                fetch('/api/panels', {headers: {'Authorization': `Bearer ${tokenJwt}`}})
-                    .then(res => res.json())
-                    .then(data => {
-                        if(data.panels) {
-                            billingData = data.billing || {};
-                            document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${billingData.plan_name})`;
-                            auditLogs = data.audit_logs || [];
-                            dadosGlobais = {};
-                            data.panels.forEach(p => { dadosGlobais[p.id] = p; });
-                            renderizar();
-                        }
-                    }).catch(err => console.error(err));
-            }
-
-            buscar();
-            pollingInterval = setInterval(buscar, 3000);
-        }
-
-        function mudarAba(aba) {
-            if (currentTab === 'commission' && aba !== 'commission') pararLeitor();
-            currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
-                const el = document.getElementById(`t-${t}`);
-                if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
-            });
-            renderizar();
-        }
-
-        async function simularFalhaComercial(id) {
-            const res = await fetch('/api/demo/force-failure', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({panel_id: id})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); mudarAba('realtime'); } else { alert("Erro ao simular falha."); }
-        }
-
-        async function alterarPlano(novoPlano) {
-            const res = await fetch('/api/tenant/upgrade-plan', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({plan_name: novoPlano})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); } else { alert("Erro ao atualizar plano."); }
-        }
-
-        async function salvarWebhook(event) {
-            event.preventDefault();
-            const url = document.getElementById('webhook-url-input').value.trim();
-            const res = await fetch('/api/tenant/webhook', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({webhook_url: url})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); } else { alert("Erro ao salvar webhook."); }
-        }
-
-        async function baixarRelatorioExecutivo() {
-            const res = await fetch('/api/export/executive-report', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
-            const blob = await res.blob();
-            const a = document.createElement('a');
-            a.href = window.URL.createObjectURL(blob);
-            a.download = "relatorio_executivo_hitech.txt";
-            a.click();
-        }
-
-        async function dispararAlerta(id) {
-            const res = await fetch('/api/alerts/dispatch', {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`}, body: JSON.stringify({panel_id: id})});
-            const d = await res.json();
-            alert(d.message || "Alerta despachado.");
-        }
-
-        async function baixarCSV() {
-            const res = await fetch('/api/export/audit-csv', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
-            const blob = await res.blob();
-            const a = document.createElement('a');
-            a.href = window.URL.createObjectURL(blob);
-            a.download = "audit_report.csv";
-            a.click();
-        }
-
-        function solicitarAssinatura(id) { painelAlvo = id; document.getElementById('modal-overlay').style.display = 'flex'; }
-        function fecharModal() { document.getElementById('modal-overlay').style.display = 'none'; }
-        async function validarPinNR10() {
-            const pin = document.getElementById('pin-input').value.trim();
-            const res = await fetch('/api/validate-nr10-pin', {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`}, body: JSON.stringify({panel_id: painelAlvo, pin: pin})});
-            if(res.ok) { fecharModal(); alert("Sucesso!"); } else { alert("PIN incorreto (1010)."); }
-        }
-
-        function abrirLeitor() {
-            document.getElementById('reader').style.display = 'block';
-            if(!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-            html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 200 }, (text) => {
-                document.getElementById('reg-qr').value = text;
-                pararLeitor();
-            }, () => {});
-        }
-        function pararLeitor() {
-            if(html5QrCode) html5QrCode.stop().catch(()=>{});
-            const r = document.getElementById('reader');
-            if(r) r.style.display = 'none';
-        }
-
-        async function registrarPainel(e) {
-            e.preventDefault();
-            pararLeitor();
-            const payload = {
-                panel_id: document.getElementById('reg-id').value.trim(),
-                name: document.getElementById('reg-name').value.trim(),
-                location: document.getElementById('reg-location').value.trim(),
-                voltage: document.getElementById('reg-voltage').value.trim(),
-                gateway_qr: document.getElementById('reg-qr').value.trim()
-            };
-            const res = await fetch('/api/panels/register', {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`}, body: JSON.stringify(payload)});
-            if(res.ok) { alert("Comissionado com sucesso!"); mudarAba('realtime'); } else { alert("Erro ao comissionar."); }
-        }
-
-        function renderizar() {
-            const container = document.getElementById('main-container');
-            const lista = Object.values(dadosGlobais);
-
-            if (currentTab === 'demo' && currentCargo === 'CEO') {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(42, 17, 17, 0.95); border: 1px solid #ef4444; padding: 25px; border-radius: 8px;">
-                        <h3 style="color:#ef4444; margin-top:0;">🎬 Modo de Demonstração Comercial (Simulador de Falhas)</h3>
-                        <p style="font-size:13px; color:#d1d5db;">Selecione um cubículo abaixo para forçar instantaneamente um estado de falha crítica (sobreaquecimento e disparo de webhook) para apresentações a clientes:</p>
-                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:15px; margin-top:20px;">
-                            ${lista.map(p => `
-                                <div style="background:rgba(15,35,25,0.9); border:1px solid #065f46; padding:15px; border-radius:6px;">
-                                    <h4 style="color:#10b981; margin:0 0 10px 0;">${p.id} -${p.name}</h4>
-                                    <p style="font-size:11px; color:#9ca3af;">Status Atual: ${p.status}</p>
-                                    <button class="btn-action" style="background:#ef4444; color:#fff; width:100%; margin-top:10px;" onclick="simularFalhaComercial('${p.id}')">⚡ Forçar Falha Crítica (Demo)</button>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>`;
-                return;
-            }
-
-            if (currentTab === 'webhooks' && currentCargo === 'CEO') {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px;">
-                        <h3 style="color:#10b981; margin-top:0;">🔔 Configuração de Webhooks para Notificações</h3>
-                        <p style="font-size:13px; color:#d1d5db;">Insira a URL de API do WhatsApp ou Telegram da sua equipe de plantão para envio instantâneo de alertas críticos de falha iminente.</p>
-                        <form onsubmit="salvarWebhook(event)" style="margin-top: 15px;">
-                            <div class="input-group">
-                                <label>Endpoint URL do Webhook</label>
-                                <input type="text" id="webhook-url-input" value="${billingData.webhook_url || ''}" placeholder="https://api.whatsapp.com/send?phone=..." required>
-                            </div>
-                            <button type="submit" class="btn-primary" style="margin-top: 10px;">Guardar Configuração de Webhook</button>
-                        </form>
-                    </div>`;
-                return;
-            }
-
-            if (currentTab === 'executive' && currentCargo === 'CEO') {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 700px;">
-                        <h3 style="color:#10b981; margin-top:0;">📈 Relatório Executivo e Consolidado de Frotas</h3>
-                        <p style="font-size:13px; color:#d1d5db;">Gere um relatório gerencial consolidado contendo métricas de downtime, status de conformidade NR-10 e diagnóstico de todas as subestações conectadas.</p>
-                        <button class="btn-action" style="background:#10b981; color:#000; font-weight:bold; padding: 10px 18px; margin-top: 15px;" onclick="baixarRelatorioExecutivo()">📥 Baixar Relatório Executivo Consolidado (.txt)</button>
-                    </div>`;
-                return;
-            }
-
-            if (currentTab === 'billing' && currentCargo === 'CEO') {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px;">
-                        <h3 style="color:#10b981; margin-top:0;">💳 Gestão de Assinatura & Faturamento SaaS</h3>
-                        <p style="font-size:13px; color:#d1d5db;">Plano Atual: <strong style="color:#34d399;">${billingData.plan_name}</strong></p>
-                        <p style="font-size:13px; color:#d1d5db;">Status da Licença: <strong style="color:#34d399;">${billingData.status}</strong></p>
-                        <p style="font-size:13px; color:#d1d5db;">Expira em: <strong>${billingData.expires_at}</strong></p>
-                        <p style="font-size:13px; color:#d1d5db;">Limite de Cubículos: <strong>${billingData.max_panels} unidades</strong></p>
-                        <div style="margin-top: 20px; display: flex; gap: 10px;">
-                            <button class="btn-action" onclick="alterarPlano('Standard')">Mudar para Plano Standard</button>
-                            <button class="btn-action" style="background:#10b981; color:#000;" onclick="alterarPlano('Enterprise')">Ativar Plano Enterprise</button>
-                        </div>
-                    </div>`;
-                return;
-            }
-
-            if (currentTab === 'commission' && (currentCargo === 'Instalador' || currentCargo === 'CEO')) {
-                container.innerHTML = `
-                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px;">
-                        <h3 style="color:#10b981; margin-top:0;">Comissionamento IoT Gateway</h3>
-                        <form onsubmit="registrarPainel(event)" style="max-width: 500px;">
-                            <div class="input-group"><label>ID</label><input type="text" id="reg-id" placeholder="PANEL-04" required></div>
-                            <div class="input-group"><label>Nome</label><input type="text" id="reg-name" placeholder="Cubículo C" required></div>
-                            <div class="input-group"><label>Local</label><input type="text" id="reg-location" placeholder="Ala Norte" required></div>
-                            <div class="input-group"><label>Tensão</label><input type="text" id="reg-voltage" placeholder="380V AC" required></div>
-                            <div class="input-group"><label>QR Code</label>
-                                <div style="display:flex; gap:5px;"><input type="text" id="reg-qr" required><button type="button" class="btn-action" onclick="abrirLeitor()">📸 Ler</button></div>
-                                <div id="reader" style="width:100%; max-width:300px; display:none; margin-top:10px;"></div>
-                            </div>
-                            <button type="submit" class="btn-primary" style="margin-top:10px;">Registrar</button>
-                        </form>
-                    </div>`;
-                return;
-            }
-
-            if (currentTab === 'realtime') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>${p.id} - ${p.name}</h3>
-                        <p><strong>Local:</strong> ${p.location}</p>
-                        <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
-                        <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
-                        <p><strong>Status:</strong> ${p.status}</p>
-                    </div>`).join('');
-            } else if (currentTab === 'predictive') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>🤖 Previsão IA - ${p.id}</h3>
-                        <p><strong>Componente:</strong> ${p.component}</p>
-                        <p><strong>Falha Estimada:</strong> <span style="color:${p.predictive_failure_hours < 30 ? '#ef4444':'#10b981'}">${p.predictive_failure_hours} horas</span></p>
-                        <p><strong>Diagnóstico:</strong> ${p.recommendation}</p>
-                        <div class="action-box">
-                            ${p.status === 'CRITICO' && (currentCargo === 'CEO' || currentCargo === 'Gerente') ? `<button class="btn-action" style="background:#ef4444; color:#fff;" onclick="dispararAlerta('${p.id}')">🚨 Despachar Alerta</button>` : ''}
-                        </div>
-                    </div>`).join('');
-            } else if (currentTab === 'esg') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card">
-                        <h3>🌱 Sustentabilidade - ${p.id}</h3>
-                        <p><strong>Perdas:</strong> ${p.esg_waste_kwh} kWh/dia</p>
-                        <p style="color:#10b981; font-weight:bold; margin-top:10px;">Otimizado ESG.</p>
-                    </div>`).join('');
-            } else if (currentTab === 'orders') {
-                container.innerHTML = lista.map(p => `
-                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
-                        <h3>O.S. - ${p.id}</h3>
-                        <p><strong>Equipamento:</strong> ${p.name}</p>
-                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Não atribuído'}</p>
-                        <div class="action-box">
-                            ${!p.assigned_to && currentCargo === 'Técnico de Campo' ? `<button class="btn-action" onclick="solicitarAssinatura('${p.id}')">Assumir (NR-10)</button>` : ''}
-                        </div>
-                    </div>`).join('');
-            } else if (currentTab === 'audit' && currentCargo === 'CEO') {
-                container.innerHTML = `<div style="grid-column: 1/-1;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                        <h3 style="color:#10b981; margin:0;">Auditoria Imutável</h3>
-                        <button class="btn-action" onclick="baixarCSV()" style="background:#10b981; color:#000; font-weight:bold;">📥 Baixar CSV</button>
-                    </div>
-                    <table class="enterprise-table">
-                        <tr><th>Data/Hora</th><th>Usuário</th><th>Cargo</th><th>Ação</th><th>Detalhes</th></tr>
-                        ${auditLogs.map(l => `<tr><td>${l.timestamp.split('.')[0]}</td><td>${l.user_name}</td><td>${l.role}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('')}
-                    </table>
-                </div>`;
+        function pararScanner() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.stop().then(() => {
+                    html5QrcodeScanner.clear();
+                    document.getElementById('btn-iniciar-scanner').style.display = 'inline-block';
+                    document.getElementById('btn-parar-scanner').style.display = 'none';
+                }).catch((err) => {
+                    console.error("Erro ao desligar o scanner:", err);
+                });
             }
         }
     </script>
