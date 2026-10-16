@@ -321,3 +321,63 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
 
         logs_data = [{"timestamp": str(l.timestamp), "user_name": l.user_name, "role": l.role, "action": l.action, "details": l.details} for l in logs]
         wo_data = [{"id": w.id, "panel_id": w.panel_id, "title": w.title, "priority": w.priority, "status": w.status, "assigned_technician": w.assigned_technician, "created_at": str(w.created_at), "description": w.description} for w in work_orders]
+        inv_data = [{"id": i.id, "part_name": i.part_name, "category": i.category, "quantity_in_stock": i.quantity_in_stock, "min_threshold": i.min_threshold, "unit_cost": i.unit_cost} for i in inventory]
+        
+        billing_info = {
+            "plan_name": sub.plan_name if sub else "Enterprise",
+            "status": sub.status if sub else "ACTIVE",
+            "expires_at": str(sub.expires_at) if sub else "2027-10-15",
+            "max_panels": sub.max_panels if sub else 25,
+            "webhook_url": sub.webhook_url if sub else ""
+        }
+
+        return {
+            "panels": panels_data, "audit_logs": logs_data, "work_orders": wo_data,
+            "inventory": inv_data, "history": history_data, "tenant_id": current_user.tenant_id, "billing": billing_info
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/inventory/update")
+def update_inventory_item(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Acesso restrito.")
+    
+    part_name = data.get("part_name")
+    category = data.get("category", "Elétrica")
+    qty_change = int(data.get("quantity_change", 0))
+    unit_cost = float(data.get("unit_cost", 150.0))
+    min_threshold = int(data.get("min_threshold", 3))
+
+    item = db.query(InventoryModel).filter(InventoryModel.part_name == part_name, InventoryModel.tenant_id == current_user.tenant_id).first()
+    if item:
+        item.quantity_in_stock += qty_change
+        item.unit_cost = unit_cost
+    else:
+        db.add(InventoryModel(tenant_id=current_user.tenant_id, part_name=part_name, category=category, quantity_in_stock=qty_change, min_threshold=min_threshold, unit_cost=unit_cost))
+    
+    db.commit()
+    return {"status": "success", "message": "Inventário atualizado com sucesso!"}
+
+@app.websocket("/ws/panels")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+@app.get("/api/export/executive-report")
+def export_executive_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    output = io.StringIO()
+    output.write("HITECH VOLTGUARD - RELATORIO EXECUTIVO OPERACIONAL\n")
+    output.seek(0)
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": "attachment; filename=relatorio.txt"})
+
+@app.get("/")
+def serve_index():
+    index_path = "index.html"
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="index.html não encontrado no diretório.")
