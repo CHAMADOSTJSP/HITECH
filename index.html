@@ -144,9 +144,10 @@
     <script>
         let currentTab = 'realtime';
         let currentUser = '', currentCargo = '', tokenJwt = '';
-        let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = [], historyData = {}, pollingInterval = null;
+        let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = {}, historyData = {}, pollingInterval = null;
         let ws = null;
         let chartInstances = {};
+        let html5QrCodeScanner = null;
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
 
@@ -237,6 +238,7 @@
 
         function construirAbas() {
             let html = `<button class="tab-btn active" id="t-realtime" onclick="mudarAba('realtime')">📊 Tempo Real</button>`;
+            html += `<button class="tab-btn" id="t-commission" onclick="mudarAba('commission')">📷 Comissionamento (QR)</button>`;
             if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
                 html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">📈 Tendência Térmica</button>`;
                 html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 ESG</button>`;
@@ -283,7 +285,7 @@
                         
                         if (currentTab === 'predictive') {
                             atualizarGraficosExistentes();
-                        } else {
+                        } else if (currentTab !== 'commission') {
                             renderizar();
                         }
                     }
@@ -298,11 +300,50 @@
 
         function mudarAba(aba) {
             currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'inventory', 'orders', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
+            ['realtime', 'commission', 'predictive', 'esg', 'inventory', 'orders', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
                 const el = document.getElementById(`t-${t}`);
                 if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
             });
             renderizar();
+        }
+
+        async function consultarQR(qrCode) {
+            const resultBox = document.getElementById('qr-result-box');
+            if(!qrCode) return;
+            try {
+                const res = await fetch(`/api/panels/qr/${encodeURIComponent(qrCode)}`, {
+                    headers: {'Authorization': `Bearer ${tokenJwt}`}
+                });
+                const p = await res.json();
+                if(!res.ok) throw new Error(p.detail || "Painel não encontrado.");
+
+                resultBox.innerHTML = `
+                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}" style="margin-top:15px;">
+                        <h3>Cubículo Encontrado: ${p.id} - ${p.name}</h3>
+                        <p><strong>Local:</strong> ${p.location}</p>
+                        <p><strong>Gateway QR:</strong> ${p.gateway_qr}</p>
+                        <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
+                        <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
+                        <p><strong>Status:</strong> ${p.status}</p>
+                        <p><strong>Diagnóstico:</strong> ${p.recommendation}</p>
+                    </div>`;
+            } catch (err) {
+                resultBox.innerHTML = `<p style="color:#ef4444; margin-top:15px; font-weight:bold;">${err.message}</p>`;
+            }
+        }
+
+        function iniciarLeitorCamera() {
+            const readerContainer = document.getElementById('reader');
+            if(!readerContainer) return;
+            try {
+                html5QrCodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+                html5QrCodeScanner.render((decodedText) => {
+                    document.getElementById('qr-input-manual').value = decodedText;
+                    consultarQR(decodedText);
+                }, (error) => {});
+            } catch(e) {
+                console.error("Câmara indisponível:", e);
+            }
         }
 
         async function simularFalhaComercial(id) {
@@ -404,6 +445,24 @@
                 chartInstances = {};
             }
 
+            if (currentTab === 'commission') {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px; margin: 0 auto;">
+                        <h3 style="color:#10b981; margin-top:0;">📷 Comissionamento e Leitura QR Code</h3>
+                        <p style="font-size:13px; color:#d1d5db;">Aponte a câmara para o código do gateway ou digite o código de fábrica (Ex: QR-GW-0010 ou PANEL-01):</p>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <div class="input-group"><label>Código QR / ID Manual</label><input type="text" id="qr-input-manual" placeholder="Ex: QR-GW-0010"></div>
+                            <button type="button" class="btn-primary" onclick="consultarQR(document.getElementById('qr-input-manual').value.trim())">Consultar Cubículo</button>
+                        </div>
+
+                        <div id="reader" style="width: 100%; background: #06110b; border-radius: 6px; overflow: hidden;"></div>
+                        <div id="qr-result-box"></div>
+                    </div>`;
+                setTimeout(() => { iniciarLeitorCamera(); }, 100);
+                return;
+            }
+
             if (currentTab === 'demo' && currentCargo === 'CEO') {
                 container.innerHTML = `
                     <div style="grid-column: 1/-1; background: rgba(42, 17, 17, 0.95); border: 1px solid #ef4444; padding: 25px; border-radius: 8px;">
@@ -454,6 +513,7 @@
                     <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
                         <h3>${p.id} - ${p.name}</h3>
                         <p><strong>Local:</strong> ${p.location}</p>
+                        <p><strong>Gateway QR:</strong> ${p.gateway_qr}</p>
                         <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
                         <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
                         <p><strong>Status:</strong> ${p.status}</p>
