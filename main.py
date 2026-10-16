@@ -242,4 +242,99 @@ def export_audit_csv(db: Session = Depends(get_db), current_user: User = Depends
     for l in logs:
         output.write(f"{l.id},{l.timestamp},{l.user_name},{l.role},{l.action},\"{l.details}\"\n")
     output.seek(0)
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename
+    filename = f"audit_{current_user.tenant_id}.csv"
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+@app.get("/api/export/executive-report")
+def export_executive_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Acesso restrito.")
+    
+    panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
+    output = io.StringIO()
+    output.write("====================================================\n")
+    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO DE FROTA\n")
+    output.write(f" Organizacao: {current_user.tenant_id} | Data: {datetime.utcnow()}\n")
+    output.write("====================================================\n\n")
+    
+    for p in panels:
+        output.write(f"ID: {p.id} | Nome: {p.name}\n")
+        output.write(f"Localizacao: {p.location}\n")
+        output.write(f"Status Atual: {p.status} | Corrente: {p.current}A | Temp: {p.temperature}C\n")
+        output.write(f"Previsao Falha: {p.predictive_failure_hours}h | Recomendacao: {p.recommendation}\n")
+        output.write("-" * 50 + "\n")
+        
+    output.seek(0)
+    filename = f"hitech_executive_report_{current_user.tenant_id}.txt"
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+@app.post("/api/tenant/upgrade-plan")
+def upgrade_plan(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "CEO":
+        raise HTTPException(status_code=403, detail="Apenas o CEO pode alterar o plano.")
+    new_plan = data.get("plan_name", "Enterprise")
+    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+    if not sub:
+        sub = TenantSubscriptionModel(tenant_id=current_user.tenant_id)
+        db.add(sub)
+    sub.plan_name = new_plan
+    sub.max_panels = 50 if new_plan == "Enterprise" else 10
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="BILLING_UPGRADE", details=f"Plano alterado para {new_plan}."))
+    db.commit()
+    return {"status": "success", "message": f"Assinatura atualizada para {new_plan}!"}
+
+@app.post("/api/tenant/webhook")
+def update_webhook(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "CEO":
+        raise HTTPException(status_code=403, detail="Apenas o CEO pode configurar webhooks.")
+    webhook_url = data.get("webhook_url", "")
+    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+    if not sub:
+        sub = TenantSubscriptionModel(tenant_id=current_user.tenant_id)
+        db.add(sub)
+    sub.webhook_url = webhook_url
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="WEBHOOK_CONFIG", details=f"Webhook atualizado para {webhook_url}."))
+    db.commit()
+    return {"status": "success", "message": "Webhook configurado com sucesso!"}
+
+@app.post("/api/alerts/dispatch")
+def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Não autorizado.")
+    panel = db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado.")
+    
+    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+    webhook_destino = sub.webhook_url if sub and sub.webhook_url else "Nenhum configurado"
+
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="ALERTA_WEBHOOK", details=f"Alerta crítico despachado para {panel.id} via Webhook ({webhook_destino})."))
+    db.commit()
+    return {"status": "success", "message": f"Alerta crítico despachado para {webhook_destino}!"}
+
+@app.post("/api/validate-nr10-pin")
+def validate_nr10_pin(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if data.get("pin") != "1010":
+        raise HTTPException(status_code=400, detail="PIN incorreto.")
+    panel = db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado.")
+    panel.assigned_to = current_user.username
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="NR10", details=f"Assumido no painel {panel.id}"))
+    db.commit()
+    return {"status": "success", "message": "Validação OK."}
+
+@app.post("/api/panels/register")
+def register_panel(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Instalador"]:
+        raise HTTPException(status_code=403, detail="Não autorizado.")
+    if db.query(PanelModel).filter(PanelModel.id == data.get("panel_id"), PanelModel.tenant_id == current_user.tenant_id).first():
+        raise HTTPException(status_code=400, detail="Painel já existe.")
+    db.add(PanelModel(id=data.get("panel_id"), tenant_id=current_user.tenant_id, name=data.get("name"), location=data.get("location"), voltage=data.get("voltage"), gateway_qr=data.get("gateway_qr"), status="NORMAL", current=150.0, temperature=50.0))
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="COMISSIONAMENTO", details=f"Painel {data.get('panel_id')} registado."))
+    db.commit()
+    return {"status": "success", "message": "Registado com sucesso."}
+
+@app.get("/")
+def serve_index():
+    return FileResponse("index.html")
