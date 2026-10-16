@@ -101,7 +101,13 @@ def get_db():
 def init_db():
     db = SessionLocal()
     try:
-        if db.query(PanelModel).count() == 0:
+        # Forçar atualização/recriação dos usuários padrão com hash bcrypt correto
+        user_rafael = db.query(UserModel).filter(UserModel.username == "RafaelFelipe").first()
+        if not user_rafael or not user_rafael.password_hash.startswith("$2b$"):
+            db.query(UserModel).delete()
+            db.query(PanelModel).delete()
+            db.query(TenantSubscriptionModel).delete()
+            
             initial_panels = [
                 PanelModel(id="PANEL-01", tenant_id="HITECH-DEFAULT", name="Cubículo Geral de Média Tensão (MT)", location="Subestação Principal - Ribeirão Preto", voltage="13.8 kV", current=454.23, temperature=70.58, gateway_qr="QR-GW-0010", status="NORMAL", component="Barramento de Cobre", predictive_failure_hours=145, recommendation="Inspeção termográfica de rotina em 60 dias.", esg_waste_kwh=0.8),
                 PanelModel(id="PANEL-02", tenant_id="HITECH-DEFAULT", name="QGBT - Alimentação de Baixa Tensão", location="Fábrica 01 - Setor de Utilidades", voltage="380V AC", current=215.5, temperature=91.19, gateway_qr="QR-GW-0070", status="CRITICO", component="Contator Geral 400A", predictive_failure_hours=18, recommendation="Substituição imediata do contator devido a desgaste.", esg_waste_kwh=4.5),
@@ -117,7 +123,7 @@ def init_db():
                 UserModel(username="InstaladorAna", password_hash=hash_password("123456"), role="Instalador", tenant_id="HITECH-DEFAULT", plan="Enterprise")
             ]
             db.add_all(default_users)
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition seguro inicializado."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition seguro inicializado com hash bcrypt."))
             db.commit()
     except Exception as e:
         db.rollback()
