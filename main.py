@@ -112,3 +112,72 @@ def init_db():
                 UserModel(username="GerenteCarlos", password_hash=hash_password("123456"), role="Gerente", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
                 UserModel(username="TecnicoMarcos", password_hash=hash_password("123456"), role="Técnico de Campo", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
                 UserModel(username="InstaladorAna", password_hash=hash_password("123456"), role="Instalador", tenant_id="HITECH-DEFAULT", plan="Enterprise")
+            ]
+            db.add_all(default_users)
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition seguro inicializado."))
+            db.commit()
+    finally:
+        db.close()
+
+init_db()
+
+class User(BaseModel):
+    username: str
+    role: str
+    tenant_id: str
+    plan: str
+
+def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return User(username=payload.get("sub"), role=payload.get("role"), tenant_id=payload.get("tenant_id"), plan=payload.get("plan"))
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
+
+@app.post("/api/token")
+def login(credentials: dict, db: Session = Depends(get_db)):
+    username = credentials.get("username")
+    password = credentials.get("password")
+    
+    db_user = db.query(UserModel).filter(UserModel.username == username).first()
+    if not db_user or not verify_password(password, db_user.password_hash):
+        raise HTTPException(status_code=400, detail="Usuário ou senha incorretos.")
+    
+    token = jwt.encode({"sub": db_user.username, "role": db_user.role, "tenant_id": db_user.tenant_id, "plan": db_user.plan, "exp": datetime.utcnow() + timedelta(days=1)}, SECRET_KEY, algorithm="HS256")
+    return {"access_token": token, "token_type": "bearer", "role": db_user.role, "plan": db_user.plan}
+
+@app.post("/api/tenant/register")
+def register_tenant(data: dict, db: Session = Depends(get_db)):
+    tenant_id = data.get("tenant_id", "").upper().strip()
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    
+    if not tenant_id or not username or not password:
+        raise HTTPException(status_code=400, detail="Preencha todos os campos do registo.")
+    
+    if db.query(UserModel).filter(UserModel.username == username).first():
+        raise HTTPException(status_code=400, detail="Este nome de usuário já está em uso.")
+    
+    if db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == tenant_id).first():
+        raise HTTPException(status_code=400, detail="Esta organização já está registada.")
+    
+    db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
+    db.add(UserModel(username=username, password_hash=hash_password(password), role="CEO", tenant_id=tenant_id, plan="Enterprise"))
+    db.add(PanelModel(id=f"{tenant_id}-01", tenant_id=tenant_id, name="Subestação Principal da Indústria", location="Setor Industrial Principal", voltage="13.8 kV", current=350.0, temperature=65.0, gateway_qr="QR-GW-9999", status="NORMAL", component="Barramento Principal", predictive_failure_hours=150, recommendation="Operação estável.", esg_waste_kwh=0.5))
+    db.add(AuditLogModel(tenant_id=tenant_id, user_name=username, role="CEO", action="REGISTO_NOVA_EMPRESA", details=f"Organização {tenant_id} comissionada com segurança."))
+    db.commit()
+    
+    return {"status": "success", "message": "Organização registada com segurança! Faça login."}
+
+@app.get("/api/panels")
+def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    try:
+        panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
+        for p in panels:
+            if p.status != "CRITICO_FORCADO":
+                p.current = round(max(10.0, p.current + random.uniform(-1.2, 1.2)), 2)
+                p.temperature = round(max(20.0, p.temperature + random.uniform(-0.3, 0.3)), 2)
+        db.commit()
+
+        logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
+        sub =
