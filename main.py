@@ -34,7 +34,7 @@ class PanelModel(Base):
     voltage = Column(String, nullable=False)
     current = Column(Float, default=0.0)
     temperature = Column(Float, default=0.0)
-    gateway_qr = Column(String, nullable=True)
+    gateway_qr = Column(String, nullable=True, index=True)
     status = Column(String, default="NORMAL")
     component = Column(String, default="Disjuntor Principal")
     predictive_failure_hours = Column(Integer, default=120)
@@ -100,7 +100,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Charts Hub")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Master Hub")
 
 class ConnectionManager:
     def __init__(self):
@@ -180,7 +180,7 @@ def init_db():
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
             db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado."))
             db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Contator Geral 400A", category="Comutação", quantity_in_stock=4, min_threshold=2, unit_cost=450.0))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema com histórico de gráficos inicializado."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema completo e revisto inicializado."))
             
         db.commit()
     except Exception as e:
@@ -337,6 +337,20 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/panels/qr/{qr_code}")
+def get_panel_by_qr(qr_code: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    panel = db.query(PanelModel).filter(PanelModel.gateway_qr == qr_code, PanelModel.tenant_id == current_user.tenant_id).first()
+    if not panel:
+        panel = db.query(PanelModel).filter(PanelModel.id == qr_code, PanelModel.tenant_id == current_user.tenant_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Nenhum cubículo encontrado para este código QR ou ID.")
+    return {
+        "id": panel.id, "name": panel.name, "location": panel.location, "voltage": panel.voltage,
+        "current": panel.current, "temperature": panel.temperature, "gateway_qr": panel.gateway_qr,
+        "status": panel.status, "component": panel.component, "predictive_failure_hours": panel.predictive_failure_hours,
+        "recommendation": panel.recommendation, "esg_waste_kwh": panel.esg_waste_kwh, "assigned_to": panel.assigned_to
+    }
 
 @app.post("/api/inventory/update")
 def update_inventory_item(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
