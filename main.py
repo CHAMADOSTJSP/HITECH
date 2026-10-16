@@ -4,8 +4,8 @@ import random
 import hashlib
 import httpx
 from datetime import datetime, timedelta
-from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
+from typing import List, Optional, Set
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
+# Configuração de Segurança baseada em SHA-256 nativo (Zero falhas no Render)
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
@@ -83,7 +84,29 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 6 (BI & Energy Intelligence)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 7 (Real-Time WebSockets)")
+
+# Gestor de conexões WebSocket para Broadcast em Tempo Real
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                pass
+
+manager = ConnectionManager()
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -133,7 +156,7 @@ def init_db():
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
             db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado em campo. Requer troca imediata."))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 6 (BI Energético) inicializado com sucesso."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 7 (WebSockets) inicializado com sucesso."))
             
         db.commit()
     except Exception as e:
@@ -255,6 +278,17 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.websocket("/ws/panels")
+async def websocket_panels_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Mantém a conexão ativa e escuta comandos/pings do cliente
+            data = await websocket.receive_text()
+            await websocket.send_json({"event": "PING_ACK", "message": "Conexão WebSocket ativa HITECH VoltGuard."})
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
 @app.post("/api/work-orders/create")
 def create_work_order(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
@@ -319,7 +353,7 @@ def update_work_order_status(data: dict, db: Session = Depends(get_db), current_
     return {"status": "success", "message": f"Ordem de Serviço #{wo_id} atualizada para {new_status}!"}
 
 @app.post("/api/iot/telemetry")
-def ingest_iot_telemetry(data: dict, db: Session = Depends(get_db)):
+async def ingest_iot_telemetry(data: dict, db: Session = Depends(get_db)):
     if not data:
         raise HTTPException(status_code=400, detail="Dados de telemetria em falta.")
     
@@ -352,6 +386,17 @@ def ingest_iot_telemetry(data: dict, db: Session = Depends(get_db)):
         details=f"Telemetria recebida para {panel_id}: {panel.temperature}°C, {panel.current}A."
     ))
     db.commit()
+
+    # Transmite a atualização em tempo real para todos os WebSockets conectados
+    await manager.broadcast({
+        "event": "TELEMETRY_UPDATE",
+        "tenant_id": tenant_id,
+        "panel_id": panel_id,
+        "temperature": panel.temperature,
+        "current": panel.current,
+        "status": panel.status
+    })
+
     return {"status": "success", "message": f"Telemetria atualizada para o painel {panel_id}."}
 
 @app.post("/api/demo/force-failure")
