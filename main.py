@@ -170,7 +170,6 @@ def init_db():
             ]
             db.add_all(initial_panels)
             
-            # Adicionar histórico simulado inicial para os gráficos
             now = datetime.utcnow()
             for p in initial_panels:
                 base_temp = p.temperature
@@ -269,11 +268,56 @@ async def force_failure(data: dict, db: Session = Depends(get_db), current_user:
     panel.predictive_failure_hours = 2
     panel.recommendation = "ALERTA CRÍTICO: Sobreaquecimento extremo detetado!"
     
-    # Registar histórico da falha
     db.add(PanelHistoryModel(panel_id=panel.id, timestamp=datetime.utcnow().strftime("%H:%M"), temperature=panel.temperature))
     db.add(AuditLogModel(
         tenant_id=current_user.tenant_id,
         user_name=current_user.username,
         role=current_user.role,
         action="FORCAR_FALHA",
-        details=f"Falha crítica simulada no painel {panel_
+        details=f"Falha crítica simulada no painel {panel_id}."
+    ))
+    db.commit()
+
+    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+    if sub and sub.webhook_url:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(sub.webhook_url, json={"event": "CRITICAL_ALERT", "panel_id": panel.id, "temperature": panel.temperature}, timeout=5.0)
+        except Exception:
+            pass
+
+    await manager.broadcast({"event": "PANEL_UPDATE", "panel_id": panel.id, "status": "CRITICO"})
+    return {"status": "success", "message": f"Falha crítica simulada com sucesso no cubículo {panel.id}!"}
+
+@app.get("/api/panels")
+def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    try:
+        panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
+        
+        panels_data = []
+        for p in panels:
+            curr = p.current
+            temp = p.temperature
+            if p.status != "CRITICO":
+                curr = round(max(10.0, p.current + random.uniform(-1.2, 1.2)), 2)
+                temp = round(max(20.0, p.temperature + random.uniform(-0.3, 0.3)), 2)
+            
+            panels_data.append({
+                "id": p.id, "name": p.name, "location": p.location, "voltage": p.voltage,
+                "current": curr, "temperature": temp, "gateway_qr": p.gateway_qr,
+                "status": p.status, "component": p.component, "predictive_failure_hours": p.predictive_failure_hours,
+                "recommendation": p.recommendation, "esg_waste_kwh": p.esg_waste_kwh, "assigned_to": p.assigned_to
+            })
+
+        logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
+        sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+        work_orders = db.query(WorkOrderModel).filter(WorkOrderModel.tenant_id == current_user.tenant_id).all()
+        inventory = db.query(InventoryModel).filter(InventoryModel.tenant_id == current_user.tenant_id).all()
+        
+        history_data = {}
+        for p in panels:
+            h_records = db.query(PanelHistoryModel).filter(PanelHistoryModel.panel_id == p.id).order_by(PanelHistoryModel.id.asc()).all()
+            history_data[p.id] = [{"timestamp": h.timestamp, "temperature": h.temperature} for h in h_records]
+
+        logs_data = [{"timestamp": str(l.timestamp), "user_name": l.user_name, "role": l.role, "action": l.action, "details": l.details} for l in logs]
+        wo_data = [{"id": w.id, "panel_id": w.panel_id, "title": w.title, "priority": w.priority, "status": w.status, "assigned_technician": w.assigned_technician, "created_at": str(w.created_at), "description": w.description} for w in work_orders]
