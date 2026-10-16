@@ -99,7 +99,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 11 (Commercial & Visual Hub)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 11")
 
 class ConnectionManager:
     def __init__(self):
@@ -112,13 +112,6 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: dict):
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except Exception:
-                pass
 
 manager = ConnectionManager()
 
@@ -133,41 +126,13 @@ def verify_password(plain_password: str, stored_password: str) -> bool:
     except Exception:
         return plain_password == stored_password
 
+# Rota dedicada para servir a logo corretamente
 @app.get("/logo.jpg")
 def get_logo():
     logo_path = "logo.jpg"
     if os.path.exists(logo_path):
         return FileResponse(logo_path)
     raise HTTPException(status_code=404, detail="Logo não encontrada.")
-
-@app.get("/manifest.json")
-def get_manifest():
-    manifest_content = """{
-  "name": "HITECH VoltGuard SCADA",
-  "short_name": "VoltGuard",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#0b0f19",
-  "theme_color": "#1e293b",
-  "icons": [
-    {
-      "src": "/logo.jpg",
-      "sizes": "192x192",
-      "type": "image/jpeg"
-    }
-  ]
-}"""
-    return StreamingResponse(iter([manifest_content]), media_type="application/json")
-
-@app.get("/sw.js")
-def get_service_worker():
-    sw_content = """self.addEventListener('install', (event) => {
-    self.skipWaiting();
-});
-self.addEventListener('fetch', (event) => {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
-});"""
-    return StreamingResponse(iter([sw_content]), media_type="application/javascript")
 
 def get_db():
     db = SessionLocal()
@@ -198,16 +163,14 @@ def init_db():
             ]
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
-            db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado em campo. Requer troca imediata."))
+            db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado em campo."))
             db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Contator Geral 400A", category="Comutação", quantity_in_stock=4, min_threshold=2, unit_cost=450.0))
-            db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Sensor Termopar Tipo K", category="Sensores", quantity_in_stock=15, min_threshold=5, unit_cost=80.0))
-            db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Disjuntor Caixa Moldada 250A", category="Proteção", quantity_in_stock=3, min_threshold=2, unit_cost=950.0))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 11 (Comercial & Visual Hub) inicializado com sucesso."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema inicializado."))
             
         db.commit()
     except Exception as e:
         db.rollback()
-        print(f"Erro crítico na inicialização da BD: {e}")
+        print(f"Erro na BD: {e}")
     finally:
         db.close()
 
@@ -262,11 +225,10 @@ def register_tenant(data: dict, db: Session = Depends(get_db)):
     new_user = UserModel(username=admin_user, password=hash_password(password), role="CEO", tenant_id=tenant_id, plan="Enterprise")
     db.merge(new_user)
     db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
-    db.add(InventoryModel(tenant_id=tenant_id, part_name="Contator Inicial 400A", category="Comutação", quantity_in_stock=5, min_threshold=2, unit_cost=450.0))
-    db.add(AuditLogModel(tenant_id=tenant_id, user_name=admin_user, role="CEO", action="REGISTO_TENANT", details=f"Nova organização {tenant_id} registada com sucesso."))
+    db.add(AuditLogModel(tenant_id=tenant_id, user_name=admin_user, role="CEO", action="REGISTO_TENANT", details=f"Organização {tenant_id} registada."))
     db.commit()
     
-    return {"status": "success", "message": f"Organização {tenant_id} criada com sucesso! Pode efetuar o login."}
+    return {"status": "success", "message": f"Organização {tenant_id} criada com sucesso!"}
 
 @app.get("/api/panels")
 def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -293,22 +255,9 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         work_orders = db.query(WorkOrderModel).filter(WorkOrderModel.tenant_id == current_user.tenant_id).all()
         inventory = db.query(InventoryModel).filter(InventoryModel.tenant_id == current_user.tenant_id).all()
         
-        logs_data = [{
-            "timestamp": str(l.timestamp), "user_name": l.user_name, "role": l.role,
-            "action": l.action, "details": l.details
-        } for l in logs]
-
-        wo_data = [{
-            "id": w.id, "panel_id": w.panel_id, "title": w.title, "priority": w.priority,
-            "status": w.status, "assigned_technician": w.assigned_technician,
-            "created_at": str(w.created_at), "description": w.description
-        } for w in work_orders]
-
-        inv_data = [{
-            "id": i.id, "part_name": i.part_name, "category": i.category,
-            "quantity_in_stock": i.quantity_in_stock, "min_threshold": i.min_threshold,
-            "unit_cost": i.unit_cost
-        } for i in inventory]
+        logs_data = [{"timestamp": str(l.timestamp), "user_name": l.user_name, "role": l.role, "action": l.action, "details": l.details} for l in logs]
+        wo_data = [{"id": w.id, "panel_id": w.panel_id, "title": w.title, "priority": w.priority, "status": w.status, "assigned_technician": w.assigned_technician, "created_at": str(w.created_at), "description": w.description} for w in work_orders]
+        inv_data = [{"id": i.id, "part_name": i.part_name, "category": i.category, "quantity_in_stock": i.quantity_in_stock, "min_threshold": i.min_threshold, "unit_cost": i.unit_cost} for i in inventory]
         
         billing_info = {
             "plan_name": sub.plan_name if sub else "Enterprise",
@@ -319,12 +268,8 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         }
 
         return {
-            "panels": panels_data, 
-            "audit_logs": logs_data, 
-            "work_orders": wo_data,
-            "inventory": inv_data,
-            "tenant_id": current_user.tenant_id, 
-            "billing": billing_info
+            "panels": panels_data, "audit_logs": logs_data, "work_orders": wo_data,
+            "inventory": inv_data, "tenant_id": current_user.tenant_id, "billing": billing_info
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -332,126 +277,30 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
 @app.post("/api/inventory/update")
 def update_inventory_item(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
-        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem gerir o inventário.")
-    
-    if not data:
-        raise HTTPException(status_code=400, detail="Dados em falta.")
+        raise HTTPException(status_code=403, detail="Acesso restrito.")
     
     part_name = data.get("part_name")
-    category = data.get("category", "Elétrica / Manutenção")
+    category = data.get("category", "Elétrica")
     qty_change = int(data.get("quantity_change", 0))
-    unit_cost = float(data.get("unit_cost", 100.0))
+    unit_cost = float(data.get("unit_cost", 150.0))
     min_threshold = int(data.get("min_threshold", 3))
-
-    if not part_name:
-        raise HTTPException(status_code=400, detail="Nome da peça em falta.")
 
     item = db.query(InventoryModel).filter(InventoryModel.part_name == part_name, InventoryModel.tenant_id == current_user.tenant_id).first()
     if item:
         item.quantity_in_stock += qty_change
         item.unit_cost = unit_cost
     else:
-        item = InventoryModel(
-            tenant_id=current_user.tenant_id,
-            part_name=part_name,
-            category=category,
-            quantity_in_stock=qty_change if qty_change > 0 else 5,
-            min_threshold=min_threshold,
-            unit_cost=unit_cost
-        )
-        db.add(item)
-
-    db.add(AuditLogModel(
-        tenant_id=current_user.tenant_id,
-        user_name=current_user.username,
-        role=current_user.role,
-        action="INVENTARIO_ATUALIZACAO",
-        details=f"Peça '{part_name}' atualizada. Ajuste: {qty_change} unidades."
-    ))
+        db.add(InventoryModel(tenant_id=current_user.tenant_id, part_name=part_name, category=category, quantity_in_stock=qty_change, min_threshold=min_threshold, unit_cost=unit_cost))
+    
     db.commit()
-    return {"status": "success", "message": f"Inventário atualizado para '{part_name}' com sucesso!"}
-
-@app.post("/api/ai/predictive-analysis")
-def run_ai_predictive_analysis(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["CEO", "Gerente"]:
-        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem executar o motor de IA Preditiva.")
-    
-    panel_id = data.get("panel_id") if data else None
-    if not panel_id:
-        raise HTTPException(status_code=400, detail="ID do painel em falta.")
-    
-    panel = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first()
-    if not panel:
-        raise HTTPException(status_code=404, detail="Painel não encontrado.")
-    
-    temp = panel.temperature
-    risk_score = round(min(100.0, max(5.0, (temp / 110.0) * 100.0)), 2)
-    
-    if temp > 90.0:
-        predicted_hours = max(4, int(200.0 - (temp * 1.5)))
-        ai_recommendation = f"[IA PREDITIVA] Risco crítico de degradação ({risk_score}%). Anomalia térmica detetada. Intervenção imediata recomendada."
-    elif temp > 75.0:
-        predicted_hours = int(350.0 - (temp * 2.0))
-        ai_recommendation = f"[IA PREDITIVA] Atenção moderada ({risk_score}%). Tendência de aquecimento acima da linha de base."
-    else:
-        predicted_hours = 720
-        ai_recommendation = f"[IA PREDITIVA] Comportamento estável ({risk_score}% de risco). Sem anomalias detetadas."
-
-    panel.predictive_failure_hours = predicted_hours
-    panel.recommendation = ai_recommendation
-
-    db.add(AuditLogModel(
-        tenant_id=current_user.tenant_id,
-        user_name=current_user.username,
-        role=current_user.role,
-        action="IA_PREDICTIVE_ANALYSIS",
-        details=f"Análise executada para o painel {panel_id}. Risco: {risk_score}%. Previsão: {predicted_hours}h."
-    ))
-    db.commit()
-
-    return {
-        "status": "success",
-        "panel_id": panel_id,
-        "risk_score_percent": risk_score,
-        "predictive_failure_hours": predicted_hours,
-        "recommendation": ai_recommendation
-    }
-
-@app.websocket("/ws/panels")
-async def websocket_panels_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await websocket.send_json({"event": "PING_ACK", "message": "Conexão WebSocket ativa HITECH VoltGuard."})
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+    return {"status": "success", "message": "Inventário atualizado com sucesso!"}
 
 @app.get("/api/export/executive-report")
 def export_executive_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["CEO", "Gerente"]:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
-    
-    panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
-    inventory = db.query(InventoryModel).filter(InventoryModel.tenant_id == current_user.tenant_id).all()
-    
     output = io.StringIO()
-    output.write("====================================================\n")
-    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO COMERCIAL\n")
-    output.write(f" Organizacao: {current_user.tenant_id} | Data: {datetime.utcnow()}\n")
-    output.write("====================================================\n\n")
-    
-    output.write("[ESTADO DOS PAINEIS]\n")
-    for p in panels:
-        output.write(f"- {p.id} ({p.name}) | Status: {p.status} | Temp: {p.temperature}°C | Previsao Falha: {p.predictive_failure_hours}h\n")
-        
-    output.write("\n[INVENTARIO DE PECAS E ALMOXARIFADO]\n")
-    for i in inventory:
-        output.write(f"- Peca: {i.part_name} | Categoria: {i.category} | Stock: {i.quantity_in_stock} (Min: {i.min_threshold}) | Custo Unit.: R$ {i.unit_cost}\n")
-        
+    output.write("HITECH VOLTGUARD - RELATORIO EXECUTIVO\n")
     output.seek(0)
-    filename = f"hitech_executive_report_commercial_{current_user.tenant_id}.txt"
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": "attachment; filename=relatorio.txt"})
 
 @app.get("/")
 def serve_index():
