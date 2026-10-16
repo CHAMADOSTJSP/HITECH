@@ -15,7 +15,7 @@
             color: #ffffff; height: 100vh;
             display: flex; justify-content: center; align-items: center;
         }
-        #login-screen, #register-screen {
+        #login-screen {
             background: rgba(15, 35, 25, 0.95);
             border: 1px solid #10b981;
             padding: 30px; border-radius: 12px; width: 360px;
@@ -25,7 +25,7 @@
         p.sub { font-size: 11px; color: #9ca3af; margin-bottom: 20px; text-transform: uppercase; }
         .input-group { margin-bottom: 12px; text-align: left; }
         label { display: block; font-size: 10px; color: #9ca3af; margin-bottom: 4px; text-transform: uppercase; font-weight: bold; }
-        input, select, textarea {
+        input {
             width: 100%; padding: 8px; background: #06110b;
             border: 1px solid #065f46; border-radius: 6px; color: #fff;
             box-sizing: border-box; font-size: 12px; margin-top: 2px;
@@ -36,10 +36,7 @@
             font-weight: bold; cursor: pointer; margin-top: 5px;
         }
         button.btn-primary:hover { background: #059669; color: #fff; }
-        .link-toggle { font-size: 11px; color: #34d399; cursor: pointer; margin-top: 15px; display: block; text-decoration: underline; }
         #error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
-        #reg-error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
-
         #dashboard-screen {
             display: none; position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh; background: rgba(11, 26, 18, 0.95);
@@ -50,38 +47,8 @@
             border-bottom: 1px solid #10b98155; padding-bottom: 15px; margin-bottom: 20px;
         }
         .dash-header h1 { font-size: 18px; color: #10b981; margin: 0; }
-        .user-info { display: flex; align-items: center; gap: 15px; font-size: 13px; }
-        
-        .badge-cargo { background: #047857; color: #ffffff; border: 1px solid #34d399; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
-        .badge-tenant { background: #1e3a8a; color: #93c5fd; border: 1px solid #3b82f6; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: bold; }
-        .btn-logout { background: #ef4444; border: none; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; }
-        
-        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-        .tab-btn { background: #06110b; border: 1px solid #065f46; color: #9ca3af; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; }
-        .tab-btn.active { background: #10b981; color: #000; border-color: #10b981; }
-
-        .kpi-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
-        .kpi-card { background: rgba(17, 42, 29, 0.9); border: 1px solid #065f46; padding: 15px; border-radius: 8px; text-align: center; }
-        .kpi-card h4 { margin: 0 0 5px 0; font-size: 11px; color: #9ca3af; text-transform: uppercase; }
-        .kpi-card span { font-size: 18px; font-weight: bold; color: #10b981; }
-
         .panels-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
-        .panel-card { background: rgba(17, 42, 29, 0.95); border: 1px solid #065f46; border-left: 5px solid #10b981; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-        .panel-card.critico { border-left-color: #ef4444; background: rgba(42, 17, 17, 0.95); border-color: #7f1d1d; }
-        .panel-card h3 { margin: 0 0 10px 0; font-size: 15px; color: #10b981; }
-        .panel-card.critico h3 { color: #ef4444; }
-        .panel-card p { margin: 6px 0; font-size: 12px; color: #d1d5db; }
-        
-        .action-box { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); }
-        .btn-action { background: #10b981; border: none; color: #000; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px; margin-right: 5px; margin-top: 5px; }
-        .btn-action:hover { background: #059669; color: #fff; }
-
-        table.enterprise-table { width: 100%; border-collapse: collapse; background: rgba(17, 42, 29, 0.95); border: 1px solid #065f46; border-radius: 8px; overflow: hidden; }
-        table.enterprise-table th, table.enterprise-table td { padding: 10px 15px; font-size: 11px; text-align: left; border-bottom: 1px solid #065f46; }
-        table.enterprise-table th { background: #065f46; color: #10b981; text-transform: uppercase; }
-
-        #modal-inventory, #modal-panel { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-box { background: #0f2319; border: 1px solid #10b981; padding: 25px; border-radius: 10px; width: 440px; max-height: 90vh; overflow-y: auto; }
+        .panel-card { background: rgba(17, 42, 29, 0.95); border: 1px solid #065f46; border-left: 5px solid #10b981; padding: 20px; border-radius: 8px; }
     </style>
 </head>
 <body>
@@ -93,60 +60,7 @@
         <div class="input-group"><label>Usuário</label><input type="text" id="usuario" value="RafaelFelipe"></div>
         <div class="input-group"><label>Senha</label><input type="password" id="senha" value="123456"></div>
         <button type="button" class="btn-primary" onclick="realizarLogin()">Acessar Plataforma</button>
-        <span class="link-toggle" onclick="mostrarRegisto(true)">Registar Nova Empresa (Tenant)</span>
         <div id="error-msg"></div>
-    </div>
-
-    <!-- ECRÃ DE REGISTO DE TENANT -->
-    <div id="register-screen" style="display:none;">
-        <h2>Nova Organização</h2>
-        <p class="sub">Self-Service Onboarding SaaS</p>
-        <div class="input-group"><label>ID da Organização (Tenant)</label><input type="text" id="reg-tenant" placeholder="Ex: INDUSTRIA-ABC"></div>
-        <div class="input-group"><label>Usuário CEO</label><input type="text" id="reg-user" placeholder="Ex: DiretorJoao"></div>
-        <div class="input-group"><label>Senha</label><input type="password" id="reg-pass" placeholder="••••••••"></div>
-        <button type="button" class="btn-primary" onclick="registarTenant()">Criar Conta SaaS</button>
-        <span class="link-toggle" onclick="mostrarRegisto(false)">← Voltar ao Login</span>
-        <div id="reg-error-msg"></div>
-    </div>
-
-    <!-- MODAL DE INVENTÁRIO -->
-    <div id="modal-inventory">
-        <div class="modal-box" style="width: 420px;">
-            <h3 style="color:#10b981; margin-top:0;">📦 Atualizar / Registar Peça (Almoxarifado)</h3>
-            <div class="input-group"><label>Nome da Peça</label><input type="text" id="inv-part" placeholder="Ex: Contator Geral 400A"></div>
-            <div class="input-group"><label>Categoria</label><input type="text" id="inv-cat" value="Comutação / Manutenção"></div>
-            <div class="input-group"><label>Ajuste de Quantidade (+/-)</label><input type="number" id="inv-qty" value="1"></div>
-            <div class="input-group"><label>Custo Unitário (R$)</label><input type="number" step="0.01" id="inv-cost" value="150.0"></div>
-            <div class="input-group"><label>Limite Mínimo de Alerta</label><input type="number" id="inv-min" value="3"></div>
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button type="button" class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalInventario()">Cancelar</button>
-                <button type="button" class="btn-action" onclick="submeterInventario()">Salvar Peça</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- MODAL DE ADICIONAR PAINEL COM LEITOR QR DE AUTOPREENCHIMENTO -->
-    <div id="modal-panel">
-        <div class="modal-box">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <h3 style="color:#10b981; margin:0;">⚡ Adicionar Painel</h3>
-                <button type="button" class="btn-action" style="background:#047857; color:#fff;" onclick="toggleCamModalPanel()">📷 Ler QR para Autopreencher</button>
-            </div>
-
-            <div id="reader-modal-panel" style="width: 100%; background: #06110b; border-radius: 6px; overflow: hidden; display:none; margin-bottom:15px;"></div>
-
-            <div class="input-group"><label>ID do Painel</label><input type="text" id="panel-id-input" placeholder="Ex: PANEL-04"></div>
-            <div class="input-group"><label>Nome Descritivo</label><input type="text" id="panel-name-input" placeholder="Ex: QGBT Setor B"></div>
-            <div class="input-group"><label>Localização</label><input type="text" id="panel-loc-input" placeholder="Ex: Fábrica 03 - Ala Norte"></div>
-            <div class="input-group"><label>Tensão Nominal</label><input type="text" id="panel-volt-input" value="380V AC"></div>
-            <div class="input-group"><label>Componente Crítico</label><input type="text" id="panel-comp-input" value="Disjuntor Principal"></div>
-            <div class="input-group"><label>Código Gateway QR</label><input type="text" id="panel-qr-input" placeholder="Ex: QR-GW-5001"></div>
-
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button type="button" class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalPainel()">Cancelar</button>
-                <button type="button" class="btn-action" onclick="submeterNovoPainel()">Registar Painel</button>
-            </div>
-        </div>
     </div>
 
     <!-- DASHBOARD PRINCIPAL -->
@@ -154,19 +68,69 @@
         <div class="dash-header">
             <div>
                 <h1>HITECH VoltGuard SCADA Enterprise</h1>
-                <span>Plataforma Multi-Tenant SaaS Industrial</span>
+                <span>Plataforma Industrial Online</span>
             </div>
-            <div class="user-info">
-                <span class="badge-tenant" id="tenant-display">-</span>
-                <span>Usuário: <strong id="user-display">-</strong></span>
-                <span class="badge-cargo" id="cargo-display">-</span>
-                <button type="button" class="btn-logout" onclick="location.reload()">Sair</button>
+            <div>
+                <button type="button" class="btn-primary" style="padding: 6px 12px; background: #ef4444; color:#fff;" onclick="location.reload()">Sair</button>
             </div>
         </div>
-
-        <div id="kpi-banner" class="kpi-container" style="display:none;"></div>
-        <div class="nav-tabs" id="nav-tabs-container"></div>
         <div id="main-container" class="panels-grid"></div>
     </div>
 
-    <!--
+    <script>
+        let tokenJwt = '';
+
+        async function realizarLogin() {
+            const usuario = document.getElementById('usuario').value.trim();
+            const senha = document.getElementById('senha').value.trim();
+            const errEl = document.getElementById('error-msg');
+            errEl.innerText = "A processar login...";
+
+            try {
+                const res = await fetch('/api/token', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: usuario, password: senha})
+                });
+                
+                const data = await res.json();
+                if(!res.ok) {
+                    throw new Error(data.detail || "Erro ao autenticar.");
+                }
+
+                tokenJwt = data.access_token;
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('dashboard-screen').style.display = 'block';
+                carregarPaineis();
+            } catch (err) {
+                console.error("Erro:", err);
+                errEl.innerText = "Erro: " + err.message;
+            }
+        }
+
+        async function carregarPaineis() {
+            try {
+                const res = await fetch('/api/panels', {
+                    headers: {'Authorization': `Bearer ${tokenJwt}`}
+                });
+                const data = await res.json();
+                const container = document.getElementById('main-container');
+                
+                if(data.panels) {
+                    container.innerHTML = data.panels.map(p => `
+                        <div class="panel-card">
+                            <h3>${p.id} - ${p.name}</h3>
+                            <p><strong>Local:</strong> ${p.location}</p>
+                            <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
+                            <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
+                            <p><strong>Status:</strong> ${p.status}</p>
+                        </div>
+                    `).join('');
+                }
+            } catch(e) {
+                console.error("Erro ao carregar painéis:", e);
+            }
+        }
+    </script>
+</body>
+</html>
