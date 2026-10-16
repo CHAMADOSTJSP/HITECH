@@ -42,7 +42,6 @@
             display: none; position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh; background: rgba(11, 26, 18, 0.95);
             box-sizing: border-box; padding: 20px 40px; overflow-y: auto;
-            z-index: 2000;
         }
         .dash-header {
             display: flex; justify-content: space-between; align-items: center;
@@ -79,7 +78,7 @@
         table.enterprise-table th, table.enterprise-table td { padding: 10px 15px; font-size: 11px; text-align: left; border-bottom: 1px solid #065f46; }
         table.enterprise-table th { background: #065f46; color: #10b981; text-transform: uppercase; }
 
-        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 3000; justify-content: center; align-items: center; }
+        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
         .modal-box { background: #0f2319; border: 1px solid #10b981; padding: 25px; border-radius: 10px; width: 400px; }
     </style>
 </head>
@@ -118,8 +117,8 @@
         </div>
     </div>
 
-    <!-- MODAL DE INVENTÁRIO -->
-    <div id="modal-inventory" style="display:none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 3000; justify-content: center; align-items: center;">
+    <!-- MODAL DE INVENTÁRIO (FASE 10) -->
+    <div id="modal-inventory" style="display:none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
         <div class="modal-box" style="width: 420px;">
             <h3 style="color:#10b981; margin-top:0;">📦 Atualizar / Registar Peça (Almoxarifado)</h3>
             <div class="input-group"><label>Nome da Peça</label><input type="text" id="inv-part" placeholder="Ex: Contator Geral 400A"></div>
@@ -156,7 +155,7 @@
     <script>
         let currentTab = 'realtime';
         let currentUser = '', currentCargo = '', tokenJwt = '';
-        let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = [], painelAlvo = null, pollingInterval = null;
+        let dadosGlobais = {}, auditLogs = [], billingData = {}, inventoryData = [], painelAlvo = null, pollingInterval = null;
         let html5QrCode = null;
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
@@ -171,7 +170,6 @@
             const user = document.getElementById('reg-user').value.trim();
             const pass = document.getElementById('reg-pass').value.trim();
             const errEl = document.getElementById('reg-error-msg');
-            if(errEl) errEl.innerText = "";
 
             try {
                 const res = await fetch('/api/tenant/register', {
@@ -180,37 +178,18 @@
                     body: JSON.stringify({tenant_id: tenant, username: user, password: pass})
                 });
                 const data = await res.json();
-                if(!res.ok) {
-                    let msg = "Erro ao registar.";
-                    if (typeof data.detail === 'string') msg = data.detail;
-                    else if (Array.isArray(data.detail)) msg = data.detail.map(d => d.msg || JSON.stringify(d)).join(', ');
-                    throw new Error(msg);
-                }
+                if(!res.ok) throw new Error(data.detail || "Erro ao registar.");
                 alert(data.message);
                 mostrarRegisto(false);
             } catch (err) {
-                if(errEl) errEl.innerText = err.message || "Erro de conexão.";
+                errEl.innerText = err.message;
             }
         }
 
         async function realizarLogin() {
-            const usuarioInput = document.getElementById('usuario');
-            const senhaInput = document.getElementById('senha');
+            const usuario = document.getElementById('usuario').value.trim();
+            const senha = document.getElementById('senha').value.trim();
             const errEl = document.getElementById('error-msg');
-            if(errEl) errEl.innerText = "";
-
-            if (!usuarioInput || !senhaInput) {
-                alert("Campos de login não encontrados.");
-                return;
-            }
-
-            const usuario = usuarioInput.value.trim();
-            const senha = senhaInput.value.trim();
-
-            if (!usuario || !senha) {
-                if(errEl) errEl.innerText = "Preencha o usuário e a senha.";
-                return;
-            }
 
             try {
                 const res = await fetch('/api/token', {
@@ -218,15 +197,8 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username: usuario, password: senha})
                 });
-                
                 const data = await res.json();
-                
-                if(!res.ok) {
-                    let msg = "Utilizador ou senha incorretos.";
-                    if (typeof data.detail === 'string') msg = data.detail;
-                    else if (Array.isArray(data.detail)) msg = data.detail.map(d => d.msg || JSON.stringify(d)).join(', ');
-                    throw new Error(msg);
-                }
+                if(!res.ok) throw new Error(data.detail || "Erro no login.");
 
                 tokenJwt = data.access_token;
                 currentCargo = data.role;
@@ -235,14 +207,13 @@
                 document.getElementById('user-display').innerText = formatarNome(usuario);
                 document.getElementById('cargo-display').innerText = currentCargo;
                 document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('register-screen').style.display = 'none';
                 document.getElementById('dashboard-screen').style.display = 'block';
 
                 construirAbas();
                 atualizarKPIs();
                 iniciarPolling();
             } catch (err) {
-                if(errEl) errEl.innerText = err.message || "Erro de conexão com o servidor.";
+                errEl.innerText = err.message;
             }
         }
 
@@ -251,7 +222,7 @@
             if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
                 html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">🤖 IA Preditiva</button>`;
                 html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 ESG</button>`;
-                html += `<button class="tab-btn" id="t-inventory" onclick="mudarAba('inventory')">📦 Almoxarifado</button>`;
+                html += `<button class="tab-btn" id="t-inventory" onclick="mudarAba('inventory')">📦 Almoxarifado (F10)</button>`;
             }
             html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Ordens de Serviço</button>`;
             if (currentCargo === 'Instalador' || currentCargo === 'CEO') {
@@ -504,7 +475,7 @@
                 container.innerHTML = `<div style="grid-column: 1/-1;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                         <div>
-                            <h3 style="color:#10b981; margin:0;">📦 Gestão de Inventário e Almoxarifado</h3>
+                            <h3 style="color:#10b981; margin:0;">📦 Gestão de Inventário e Almoxarifado (Fase 10)</h3>
                             <p style="font-size:11px; color:#9ca3af; margin:4px 0 0 0;">Controlo de peças de reposição críticas e níveis mínimos de stock</p>
                         </div>
                         <button class="btn-action" onclick="abrirModalInventario()" style="background:#10b981; color:#000; font-weight:bold;">+ Adicionar / Ajustar Peça</button>
