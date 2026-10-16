@@ -211,7 +211,7 @@
                     body: JSON.stringify({username: usuario, password: senha})
                 });
                 const data = await res.json();
-                if(!res.ok) throw new Error(data.detail || "Erro no login.");
+                if(!res.ok) throw new Error(data.detail || "Utilizador ou senha incorretos.");
 
                 tokenJwt = data.access_token;
                 currentCargo = data.role;
@@ -220,6 +220,7 @@
                 document.getElementById('user-display').innerText = formatarNome(usuario);
                 document.getElementById('cargo-display').innerText = currentCargo;
                 document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('register-screen').style.display = 'none';
                 document.getElementById('dashboard-screen').style.display = 'block';
 
                 construirAbas();
@@ -303,62 +304,4 @@
             const res = await fetch('/api/demo/force-failure', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({panel_id: id})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); mudarAba('realtime'); } else { alert("Erro ao simular falha."); }
-        }
-
-        async function alterarPlano(novoPlano) {
-            const res = await fetch('/api/tenant/upgrade-plan', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({plan_name: novoPlano})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); } else { alert("Erro ao atualizar plano."); }
-        }
-
-        async function salvarWebhook(event) {
-            event.preventDefault();
-            const url = document.getElementById('webhook-url-input').value.trim();
-            const res = await fetch('/api/tenant/webhook', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
-                body: JSON.stringify({webhook_url: url})
-            });
-            const d = await res.json();
-            if(res.ok) { alert(d.message); } else { alert("Erro ao salvar webhook."); }
-        }
-
-        async function baixarRelatorioExecutivo() {
-            const res = await fetch('/api/export/executive-report', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
-            const blob = await res.blob();
-            const a = document.createElement('a');
-            a.href = window.URL.createObjectURL(blob);
-            a.download = "relatorio_executivo_hitech.txt";
-            a.click();
-        }
-
-        async function dispararAlerta(id) {
-            const res = await fetch('/api/alerts/dispatch', {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`}, body: JSON.stringify({panel_id: id})});
-            const d = await res.json();
-            alert(d.message || "Alerta despachado.");
-        }
-
-        async function baixarCSV() {
-            const res = await fetch('/api/export/audit-csv', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
-            const blob = await res.blob();
-            const a = document.createElement('a');
-            a.href = window.URL.createObjectURL(blob);
-            a.download = "audit_report.csv";
-            a.click();
-        }
-
-        function solicitarAssinatura(id) { painelAlvo = id; document.getElementById('modal-overlay').style.display = 'flex'; }
-        function fecharModal() { document.getElementById('modal-overlay').style.display = 'none'; }
-        async function validarPinNR10() {
-            const pin = document.getElementById('pin-input').value.trim();
-            const res = await fetch('/api/validate-nr10-pin', {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`}, body: JSON.stringify({panel_id: painelAlvo, pin: pin})});
-            if(res.ok) { fecharModal(); alert("Sucesso!"); } else { alert("PIN incorreto (1010)."); }
-        }
+                body
