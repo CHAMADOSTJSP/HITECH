@@ -187,9 +187,22 @@
         }
 
         async function realizarLogin() {
-            const usuario = document.getElementById('usuario').value.trim();
-            const senha = document.getElementById('senha').value.trim();
+            const usuarioInput = document.getElementById('usuario');
+            const senhaInput = document.getElementById('senha');
             const errEl = document.getElementById('error-msg');
+
+            if (!usuarioInput || !senhaInput) {
+                if(errEl) errEl.innerText = "Erro interno: Campos de login não encontrados.";
+                return;
+            }
+
+            const usuario = usuarioInput.value.trim();
+            const senha = senhaInput.value.trim();
+
+            if (!usuario || !senha) {
+                if(errEl) errEl.innerText = "Preencha o usuário e a senha.";
+                return;
+            }
 
             try {
                 const res = await fetch('/api/token', {
@@ -213,7 +226,7 @@
                 atualizarKPIs();
                 iniciarPolling();
             } catch (err) {
-                errEl.innerText = err.message;
+                if(errEl) errEl.innerText = err.message;
             }
         }
 
@@ -319,4 +332,33 @@
         }
 
         async function baixarRelatorioExecutivo() {
-            const res = await fetch('/api/
+            const res = await fetch('/api/export/executive-report', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = window.URL.createObjectURL(blob);
+            a.download = "relatorio_executivo_hitech.txt";
+            a.click();
+        }
+
+        async function dispararAlerta(id) {
+            const res = await fetch('/api/alerts/dispatch', {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`}, body: JSON.stringify({panel_id: id})});
+            const d = await res.json();
+            alert(d.message || "Alerta despachado.");
+        }
+
+        async function baixarCSV() {
+            const res = await fetch('/api/export/audit-csv', {headers: {'Authorization': `Bearer ${tokenJwt}`}});
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = window.URL.createObjectURL(blob);
+            a.download = "audit_report.csv";
+            a.click();
+        }
+
+        function solicitarAssinatura(id) { painelAlvo = id; document.getElementById('modal-overlay').style.display = 'flex'; }
+        function fecharModal() { document.getElementById('modal-overlay').style.display = 'none'; }
+        async function validarPinNR10() {
+            const pin = document.getElementById('pin-input').value.trim();
+            const res = await fetch('/api/validate-nr10-pin', {method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`}, body: JSON.stringify({panel_id: painelAlvo, pin: pin})});
+            if(res.ok) { fecharModal(); alert("Sucesso!"); } else { alert("PIN incorreto (1010)."); }
+        }
