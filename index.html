@@ -36,7 +36,8 @@
         }
         button.btn-primary:hover { background: #059669; color: #fff; }
         .link-toggle { font-size: 11px; color: #34d399; cursor: pointer; margin-top: 15px; display: block; text-decoration: underline; }
-        #error-msg, #reg-error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
+        #error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
+        #reg-error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
 
         #dashboard-screen {
             display: none; position: absolute; top: 0; left: 0;
@@ -78,7 +79,7 @@
         table.enterprise-table th, table.enterprise-table td { padding: 10px 15px; font-size: 11px; text-align: left; border-bottom: 1px solid #065f46; }
         table.enterprise-table th { background: #065f46; color: #10b981; text-transform: uppercase; }
 
-        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        #modal-inventory { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
         .modal-box { background: #0f2319; border: 1px solid #10b981; padding: 25px; border-radius: 10px; width: 400px; }
     </style>
 </head>
@@ -103,18 +104,6 @@
         <button type="button" class="btn-primary" onclick="registarTenant()">Criar Conta SaaS</button>
         <span class="link-toggle" onclick="mostrarRegisto(false)">← Voltar ao Login</span>
         <div id="reg-error-msg"></div>
-    </div>
-
-    <div id="modal-overlay">
-        <div class="modal-box">
-            <h3>Validação de Segurança NR-10</h3>
-            <p style="font-size: 11px; color: #9ca3af;">Insira seu PIN (1010):</p>
-            <input type="password" id="pin-input" maxlength="4" style="text-align:center; font-size:16px; letter-spacing:4px;">
-            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
-                <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModal()">Cancelar</button>
-                <button class="btn-action" onclick="validarPinNR10()">Assinar</button>
-            </div>
-        </div>
     </div>
 
     <div id="modal-inventory" style="display:none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
@@ -154,7 +143,7 @@
     <script>
         let currentTab = 'realtime';
         let currentUser = '', currentCargo = '', tokenJwt = '';
-        let dadosGlobais = {}, auditLogs = [], billingData = {}, inventoryData = [], painelAlvo = null, pollingInterval = null;
+        let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = [], pollingInterval = null;
         let ws = null;
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
@@ -186,9 +175,18 @@
         }
 
         async function realizarLogin() {
-            const usuario = document.getElementById('usuario').value.trim();
-            const senha = document.getElementById('senha').value.trim();
+            const usuarioInput = document.getElementById('usuario');
+            const senhaInput = document.getElementById('senha');
             const errEl = document.getElementById('error-msg');
+
+            if(!usuarioInput || !senhaInput) {
+                errEl.innerText = "Erro crítico: Elementos de formulário não encontrados.";
+                return;
+            }
+
+            const usuario = usuarioInput.value.trim();
+            const senha = senhaInput.value.trim();
+            errEl.innerText = "";
 
             try {
                 const res = await fetch('/api/token', {
@@ -196,8 +194,11 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username: usuario, password: senha})
                 });
+                
                 const data = await res.json();
-                if(!res.ok) throw new Error(data.detail || "Erro no login.");
+                if(!res.ok) {
+                    throw new Error(data.detail || "Utilizador ou senha incorretos.");
+                }
 
                 tokenJwt = data.access_token;
                 currentCargo = data.role;
@@ -218,14 +219,18 @@
         }
 
         function iniciarWebSocket() {
-            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${proto}//${location.host}/ws/panels`);
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                if(msg.event === 'PANEL_UPDATE') {
-                    buscarDadosPainéis();
-                }
-            };
+            try {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${proto}//${location.host}/ws/panels`);
+                ws.onmessage = (event) => {
+                    const msg = JSON.parse(event.data);
+                    if(msg.event === 'PANEL_UPDATE') {
+                        buscarDadosPainéis();
+                    }
+                };
+            } catch(e) {
+                console.error("Erro no WebSocket:", e);
+            }
         }
 
         function construirAbas() {
@@ -249,3 +254,178 @@
         function atualizarKPIs() {
             const banner = document.getElementById('kpi-banner');
             banner.style.display = 'grid';
+            banner.innerHTML = currentCargo === 'CEO' ? `
+                <div class="kpi-card"><h4>Risco</h4><span style="color:#ef4444;">Monitorizado</span></div>
+                <div class="kpi-card"><h4>Downtime</h4><span>R$ 14.500 / h</span></div>
+                <div class="kpi-card"><h4>Confiabilidade</h4><span>98.4%</span></div>
+                <div class="kpi-card"><h4>ESG</h4><span>124 kWh</span></div>
+            ` : `
+                <div class="kpi-card"><h4>Equipe</h4><span>100% Ativa</span></div>
+                <div class="kpi-card"><h4>MTTR</h4><span>32 min</span></div>
+                <div class="kpi-card"><h4>Eficiência</h4><span>99.1%</span></div>
+            `;
+        }
+
+        function buscarDadosPainéis() {
+            fetch('/api/panels', {headers: {'Authorization': `Bearer ${tokenJwt}`}})
+                .then(res => res.json())
+                .then(data => {
+                    if(data.panels) {
+                        billingData = data.billing || {};
+                        document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${billingData.plan_name})`;
+                        auditLogs = data.audit_logs || [];
+                        inventoryData = data.inventory || [];
+                        dadosGlobais = {};
+                        data.panels.forEach(p => { dadosGlobais[p.id] = p; });
+                        renderizar();
+                    }
+                }).catch(err => console.error(err));
+        }
+
+        function iniciarPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            buscarDadosPainéis();
+            pollingInterval = setInterval(buscarDadosPainéis, 3000);
+        }
+
+        function mudarAba(aba) {
+            currentTab = aba;
+            ['realtime', 'predictive', 'esg', 'inventory', 'orders', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
+                const el = document.getElementById(`t-${t}`);
+                if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
+            });
+            renderizar();
+        }
+
+        async function simularFalhaComercial(id) {
+            const res = await fetch('/api/demo/force-failure', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({panel_id: id})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); mudarAba('realtime'); } else { alert("Erro ao simular falha."); }
+        }
+
+        async function salvarWebhook(event) {
+            event.preventDefault();
+            const url = document.getElementById('webhook-url-input').value.trim();
+            const res = await fetch('/api/tenant/webhook', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({webhook_url: url})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); } else { alert("Erro ao salvar webhook."); }
+        }
+
+        function abrirModalInventario() { document.getElementById('modal-inventory').style.display = 'flex'; }
+        function fecharModalInventario() { document.getElementById('modal-inventory').style.display = 'none'; }
+
+        async function submeterInventario() {
+            const partName = document.getElementById('inv-part').value.trim();
+            const category = document.getElementById('inv-cat').value.trim();
+            const qtyChange = parseInt(document.getElementById('inv-qty').value);
+            const unitCost = parseFloat(document.getElementById('inv-cost').value);
+            const minThreshold = parseInt(document.getElementById('inv-min').value);
+
+            const res = await fetch('/api/inventory/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({part_name: partName, category: category, quantity_change: qtyChange, unit_cost: unitCost, min_threshold: minThreshold})
+            });
+            if(res.ok) { fecharModalInventario(); buscarDadosPainéis(); }
+        }
+
+        function renderizar() {
+            const container = document.getElementById('main-container');
+            const lista = Object.values(dadosGlobais);
+
+            if (currentTab === 'demo' && currentCargo === 'CEO') {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; background: rgba(42, 17, 17, 0.95); border: 1px solid #ef4444; padding: 25px; border-radius: 8px;">
+                        <h3 style="color:#ef4444; margin-top:0;">🎬 Simulação de Falha Crítica com Webhook Automático</h3>
+                        <p style="font-size:13px; color:#d1d5db;">Forçar falha gera notificação instantânea no endpoint configurado:</p>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:15px; margin-top:20px;">
+                            ${lista.map(p => `
+                                <div style="background:rgba(15,35,25,0.9); border:1px solid #065f46; padding:15px; border-radius:6px;">
+                                    <h4 style="color:#10b981; margin:0 0 10px 0;">${p.id} -${p.name}</h4>
+                                    <p style="font-size:11px; color:#9ca3af;">Status: ${p.status}</p>
+                                    <button class="btn-action" style="background:#ef4444; color:#fff; width:100%; margin-top:10px;" onclick="simularFalhaComercial('${p.id}')">⚡ Disparar Alarme Crítico</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>`;
+                return;
+            }
+
+            if (currentTab === 'webhooks' && currentCargo === 'CEO') {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; background: rgba(17, 42, 29, 0.95); border: 1px solid #10b981; padding: 25px; border-radius: 8px; max-width: 600px;">
+                        <h3 style="color:#10b981; margin-top:0;">🔔 Webhook Automático para Alertas Críticos</h3>
+                        <p style="font-size:13px; color:#d1d5db;">Insira o endpoint para envio imediato de picos térmicos.</p>
+                        <form onsubmit="salvarWebhook(event)" style="margin-top: 15px;">
+                            <div class="input-group"><label>Endpoint URL</label><input type="text" id="webhook-url-input" value="${billingData.webhook_url || ''}" required></div>
+                            <button type="submit" class="btn-primary" style="margin-top: 10px;">Guardar Webhook</button>
+                        </form>
+                    </div>`;
+                return;
+            }
+
+            if (currentTab === 'inventory' && (currentCargo === 'CEO' || currentCargo === 'Gerente')) {
+                container.innerHTML = `<div style="grid-column: 1/-1;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="color:#10b981; margin:0;">📦 Gestão de Inventário e Almoxarifado</h3>
+                        <button class="btn-action" onclick="abrirModalInventario()" style="background:#10b981; color:#000; font-weight:bold;">+ Adicionar Peça</button>
+                    </div>
+                    <table class="enterprise-table">
+                        <tr><th>Nome</th><th>Categoria</th><th>Stock</th><th>Mínimo</th><th>Custo</th><th>Estado</th></tr>
+                        ${inventoryData.map(i => `<tr><td>${i.part_name}</td><td>${i.category}</td><td>${i.quantity_in_stock}</td><td>${i.min_threshold}</td><td>R$ ${i.unit_cost.toFixed(2)}</td><td>ESTÁVEL</td></tr>`).join('')}
+                    </table>
+                </div>`;
+                return;
+            }
+
+            if (currentTab === 'realtime') {
+                container.innerHTML = lista.map(p => `
+                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
+                        <h3>${p.id} - ${p.name}</h3>
+                        <p><strong>Local:</strong> ${p.location}</p>
+                        <p><strong>Tensão:</strong> ${p.voltage} | <strong>Corrente:</strong> ${p.current} A</p>
+                        <p><strong>Temperatura:</strong> ${p.temperature} °C</p>
+                        <p><strong>Status:</strong> ${p.status}</p>
+                    </div>`).join('');
+            } else if (currentTab === 'predictive') {
+                container.innerHTML = lista.map(p => `
+                    <div class="panel-card ${p.status === 'CRITICO' ? 'critico' : ''}">
+                        <h3>🤖 Previsão IA - ${p.id}</h3>
+                        <p><strong>Componente:</strong> ${p.component}</p>
+                        <p><strong>Falha Estimada:</strong> ${p.predictive_failure_hours} horas</p>
+                        <p><strong>Diagnóstico:</strong> ${p.recommendation}</p>
+                    </div>`).join('');
+            } else if (currentTab === 'esg') {
+                container.innerHTML = lista.map(p => `
+                    <div class="panel-card">
+                        <h3>🌱 Sustentabilidade - ${p.id}</h3>
+                        <p><strong>Perdas:</strong> ${p.esg_waste_kwh} kWh/dia</p>
+                    </div>`).join('');
+            } else if (currentTab === 'orders') {
+                container.innerHTML = lista.map(p => `
+                    <div class="panel-card">
+                        <h3>O.S. - ${p.id}</h3>
+                        <p><strong>Equipamento:</strong> ${p.name}</p>
+                        <p><strong>Responsável:</strong> ${p.assigned_to || 'Não atribuído'}</p>
+                    </div>`).join('');
+            } else if (currentTab === 'audit' && currentCargo === 'CEO') {
+                container.innerHTML = `<div style="grid-column: 1/-1;">
+                    <h3 style="color:#10b981; margin-bottom:15px;">Auditoria Imutável</h3>
+                    <table class="enterprise-table">
+                        <tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr>
+                        ${auditLogs.map(l => `<tr><td>${l.timestamp.split('.')[0]}</td><td>${l.user_name}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('')}
+                    </table>
+                </div>`;
+            }
+        }
+    </script>
+</body>
+</html>
