@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from datetime import datetime
 import io
+import os
 
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
@@ -103,6 +104,14 @@ db_inventory = [
     {"part_name": "Contator Geral 400A", "category": "Comutação", "quantity_in_stock": 2, "min_threshold": 3, "unit_cost": 450.0},
     {"part_name": "Módulo Retificador 50A", "category": "Alimentação", "quantity_in_stock": 5, "min_threshold": 2, "unit_cost": 1200.0}
 ]
+
+# Rota explícita para servir a raiz garantindo renderização correta
+@app.get("/", response_class=HTMLResponse)
+def read_root():
+    if os.path.exists("index.html"):
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>Erro: index.html não encontrado no diretório.</h1>"
 
 @app.post("/api/token")
 async def login_access_token(payload: LoginPayload = None, form_data: OAuth2PasswordRequestForm = Depends()):
@@ -231,6 +240,3 @@ def validate_pin(data: PinValidation):
                 p["assigned_to"] = "RafaelFelipe"
         return {"message": "Assinatura NR-10 validada com sucesso."}
     raise HTTPException(status_code=400, detail="PIN inválido.")
-
-# Montar os ficheiros estáticos por último para servir a interface
-app.mount("/", StaticFiles(directory=".", html=True), name="static")
