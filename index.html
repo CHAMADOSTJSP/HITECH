@@ -23,12 +23,12 @@
         }
         h2 { margin-bottom: 5px; color: #10b981; font-size: 20px; }
         p.sub { font-size: 11px; color: #9ca3af; margin-bottom: 20px; text-transform: uppercase; }
-        .input-group { margin-bottom: 15px; text-align: left; }
-        label { display: block; font-size: 10px; color: #9ca3af; margin-bottom: 5px; text-transform: uppercase; font-weight: bold; }
+        .input-group { margin-bottom: 12px; text-align: left; }
+        label { display: block; font-size: 10px; color: #9ca3af; margin-bottom: 4px; text-transform: uppercase; font-weight: bold; }
         input, select, textarea {
             width: 100%; padding: 8px; background: #06110b;
             border: 1px solid #065f46; border-radius: 6px; color: #fff;
-            box-sizing: border-box; font-size: 12px; margin-top: 4px;
+            box-sizing: border-box; font-size: 12px; margin-top: 2px;
         }
         button.btn-primary {
             width: 100%; padding: 10px; background: #10b981;
@@ -81,7 +81,7 @@
         table.enterprise-table th { background: #065f46; color: #10b981; text-transform: uppercase; }
 
         #modal-inventory, #modal-panel { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
-        .modal-box { background: #0f2319; border: 1px solid #10b981; padding: 25px; border-radius: 10px; width: 400px; }
+        .modal-box { background: #0f2319; border: 1px solid #10b981; padding: 25px; border-radius: 10px; width: 440px; max-height: 90vh; overflow-y: auto; }
     </style>
 </head>
 <body>
@@ -89,7 +89,6 @@
     <div id="login-screen">
         <h2>HITECH VoltGuard</h2>
         <p class="sub">SCADA Enterprise SaaS</p>
-        <!-- Corrigido para não conter espaço no valor padrão -->
         <div class="input-group"><label>Usuário</label><input type="text" id="usuario" value="RafaelFelipe"></div>
         <div class="input-group"><label>Senha</label><input type="password" id="senha" value="123456"></div>
         <button type="button" class="btn-primary" onclick="realizarLogin()">Acessar Plataforma</button>
@@ -123,15 +122,24 @@
         </div>
     </div>
 
+    <!-- MODAL DE ADICIONAR PAINEL COM LEITOR QR DE AUTOPREENCHIMENTO -->
     <div id="modal-panel" style="display:none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center;">
-        <div class="modal-box" style="width: 420px;">
-            <h3 style="color:#10b981; margin-top:0;">⚡ Adicionar Novo Cubículo / Painel</h3>
+        <div class="modal-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="color:#10b981; margin:0;">⚡ Adicionar Painel</h3>
+                <button type="button" class="btn-action" style="background:#047857; color:#fff;" onclick="toggleCamModalPanel()">📷 Ler QR para Autopreencher</button>
+            </div>
+
+            <!-- Contentor da câmara do modal -->
+            <div id="reader-modal-panel" style="width: 100%; background: #06110b; border-radius: 6px; overflow: hidden; display:none; margin-bottom:15px;"></div>
+
             <div class="input-group"><label>ID do Painel</label><input type="text" id="panel-id-input" placeholder="Ex: PANEL-04"></div>
             <div class="input-group"><label>Nome Descritivo</label><input type="text" id="panel-name-input" placeholder="Ex: QGBT Setor B"></div>
             <div class="input-group"><label>Localização</label><input type="text" id="panel-loc-input" placeholder="Ex: Fábrica 03 - Ala Norte"></div>
             <div class="input-group"><label>Tensão Nominal</label><input type="text" id="panel-volt-input" value="380V AC"></div>
             <div class="input-group"><label>Componente Crítico</label><input type="text" id="panel-comp-input" value="Disjuntor Principal"></div>
             <div class="input-group"><label>Código Gateway QR</label><input type="text" id="panel-qr-input" placeholder="Ex: QR-GW-5001"></div>
+
             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
                 <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalPainel()">Cancelar</button>
                 <button class="btn-action" onclick="submeterNovoPainel()">Registar Painel</button>
@@ -165,6 +173,7 @@
         let ws = null;
         let chartInstances = {};
         let html5QrCodeScanner = null;
+        let modalQrScanner = null;
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
 
@@ -236,7 +245,6 @@
             } catch (err) {
                 console.error("Erro no Login:", err);
                 errEl.innerText = err.message;
-                alert("Erro ao entrar: " + err.message);
             }
         }
 
@@ -354,19 +362,81 @@
         function iniciarLeitorCamera() {
             const readerContainer = document.getElementById('reader');
             if(!readerContainer) return;
+            
+            if (html5QrCodeScanner) {
+                try { html5QrCodeScanner.clear(); } catch(e) {}
+            }
+
             try {
-                html5QrCodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+                html5QrCodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 }, false);
                 html5QrCodeScanner.render((decodedText) => {
                     document.getElementById('qr-input-manual').value = decodedText;
                     consultarQR(decodedText);
                 }, (error) => {});
             } catch(e) {
-                console.error("Câmara indisponível:", e);
+                console.error("Erro ao iniciar câmara:", e);
+                readerContainer.innerHTML = `<p style="color:#f59e0b; padding:15px; font-size:12px;">⚠️ Câmara indisponível ou bloqueada pelo navegador.</p>`;
             }
         }
 
-        function abrirModalPainel() { document.getElementById('modal-panel').style.display = 'flex'; }
-        function fecharModalPainel() { document.getElementById('modal-panel').style.display = 'none'; }
+        function abrirModalPainel() { 
+            document.getElementById('modal-panel').style.display = 'flex'; 
+        }
+
+        function fecharModalPainel() { 
+            if (modalQrScanner) {
+                try { 
+                    modalQrScanner.clear().catch(() => {}); 
+                } catch(e) {}
+                modalQrScanner = null;
+            }
+            const readerEl = document.getElementById('reader-modal-panel');
+            if(readerEl) readerEl.style.display = 'none';
+            document.getElementById('modal-panel').style.display = 'none'; 
+        }
+
+        function toggleCamModalPanel() {
+            const readerEl = document.getElementById('reader-modal-panel');
+            if (!readerEl) return;
+
+            if (readerEl.style.display === 'none') {
+                readerEl.style.display = 'block';
+                try {
+                    modalQrScanner = new Html5QrcodeScanner("reader-modal-panel", { fps: 10, qrbox: 200 }, false);
+                    modalQrScanner.render((decodedText) => {
+                        try {
+                            const parsedData = JSON.parse(decodedText);
+                            if(parsedData.id) document.getElementById('panel-id-input').value = parsedData.id;
+                            if(parsedData.name) document.getElementById('panel-name-input').value = parsedData.name;
+                            if(parsedData.location) document.getElementById('panel-loc-input').value = parsedData.location;
+                            if(parsedData.voltage) document.getElementById('panel-volt-input').value = parsedData.voltage;
+                            if(parsedData.component) document.getElementById('panel-comp-input').value = parsedData.component;
+                            if(parsedData.gateway_qr) document.getElementById('panel-qr-input').value = parsedData.gateway_qr;
+                        } catch(e) {
+                            document.getElementById('panel-qr-input').value = decodedText;
+                            document.getElementById('panel-id-input').value = "PANEL-" + Math.floor(Math.random() * 900 + 100);
+                            document.getElementById('panel-name-input').value = "Painel Automatizado " + decodedText;
+                            document.getElementById('panel-loc-input').value = "Subestação Principal";
+                        }
+                        
+                        if (modalQrScanner) {
+                            try { modalQrScanner.clear().catch(() => {}); } catch(err) {}
+                            modalQrScanner = null;
+                        }
+                        readerEl.style.display = 'none';
+                        alert("✅ Informações preenchidas automaticamente com sucesso!");
+                    }, (error) => {});
+                } catch(e) {
+                    console.error("Erro ao abrir câmara no modal:", e);
+                }
+            } else {
+                if (modalQrScanner) {
+                    try { modalQrScanner.clear().catch(() => {}); } catch(e) {}
+                    modalQrScanner = null;
+                }
+                readerEl.style.display = 'none';
+            }
+        }
 
         async function submeterNovoPainel() {
             const panelId = document.getElementById('panel-id-input').value.trim();
@@ -501,10 +571,10 @@
                             <button type="button" class="btn-primary" onclick="consultarQR(document.getElementById('qr-input-manual').value.trim())">Consultar Cubículo</button>
                         </div>
 
-                        <div id="reader" style="width: 100%; background: #06110b; border-radius: 6px; overflow: hidden;"></div>
+                        <div id="reader" style="width: 100%; background: #06110b; border-radius: 6px; overflow: hidden; min-height: 250px;"></div>
                         <div id="qr-result-box"></div>
                     </div>`;
-                setTimeout(() => { iniciarLeitorCamera(); }, 100);
+                setTimeout(() => { iniciarLeitorCamera(); }, 200);
                 return;
             }
 
