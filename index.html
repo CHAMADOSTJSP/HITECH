@@ -14,7 +14,7 @@
             color: #ffffff; height: 100vh;
             display: flex; justify-content: center; align-items: center;
         }
-        #login-screen {
+        #login-screen, #register-screen {
             background: rgba(15, 35, 25, 0.95);
             border: 1px solid #10b981;
             padding: 30px; border-radius: 12px; width: 360px;
@@ -35,7 +35,8 @@
             font-weight: bold; cursor: pointer; margin-top: 5px;
         }
         button.btn-primary:hover { background: #059669; color: #fff; }
-        #error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
+        .link-toggle { font-size: 11px; color: #34d399; cursor: pointer; margin-top: 15px; display: block; text-decoration: underline; }
+        #error-msg, #reg-error-msg { color: #ef4444; font-size: 12px; margin-top: 10px; font-weight: bold; }
 
         #dashboard-screen {
             display: none; position: absolute; top: 0; left: 0;
@@ -89,7 +90,19 @@
         <div class="input-group"><label>Usuário</label><input type="text" id="usuario" value="RafaelFelipe"></div>
         <div class="input-group"><label>Senha</label><input type="password" id="senha" value="123456"></div>
         <button type="button" class="btn-primary" onclick="realizarLogin()">Acessar Plataforma</button>
+        <span class="link-toggle" onclick="mostrarRegisto(true)">Registar Nova Empresa (Tenant)</span>
         <div id="error-msg"></div>
+    </div>
+
+    <div id="register-screen" style="display:none;">
+        <h2>Nova Organização</h2>
+        <p class="sub">Self-Service Onboarding SaaS</p>
+        <div class="input-group"><label>ID da Organização (Tenant)</label><input type="text" id="reg-tenant" placeholder="Ex: INDUSTRIA-ABC"></div>
+        <div class="input-group"><label>Usuário CEO</label><input type="text" id="reg-user" placeholder="Ex: DiretorJoao"></div>
+        <div class="input-group"><label>Senha</label><input type="password" id="reg-pass" placeholder="••••••••"></div>
+        <button type="button" class="btn-primary" onclick="registarTenant()">Criar Conta SaaS</button>
+        <span class="link-toggle" onclick="mostrarRegisto(false)">← Voltar ao Login</span>
+        <div id="reg-error-msg"></div>
     </div>
 
     <div id="modal-overlay">
@@ -130,6 +143,32 @@
         let html5QrCode = null;
 
         function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
+
+        function mostrarRegisto(mostrar) {
+            document.getElementById('login-screen').style.display = mostrar ? 'none' : 'block';
+            document.getElementById('register-screen').style.display = mostrar ? 'block' : 'none';
+        }
+
+        async function registarTenant() {
+            const tenant = document.getElementById('reg-tenant').value.trim();
+            const user = document.getElementById('reg-user').value.trim();
+            const pass = document.getElementById('reg-pass').value.trim();
+            const errEl = document.getElementById('reg-error-msg');
+
+            try {
+                const res = await fetch('/api/tenant/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({tenant_id: tenant, username: user, password: pass})
+                });
+                const data = await res.json();
+                if(!res.ok) throw new Error(data.detail || "Erro ao registar.");
+                alert(data.message);
+                mostrarRegisto(false);
+            } catch (err) {
+                errEl.innerText = err.message;
+            }
+        }
 
         async function realizarLogin() {
             const usuario = document.getElementById('usuario').value.trim();
@@ -176,7 +215,8 @@
                 html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
                 html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
                 html += `<button class="tab-btn" id="t-executive" onclick="mudarAba('executive')">📈 Relatório Executivo</button>`;
-                html += `<button class="tab-btn" id="t-webhooks" onclick="mudarAba('webhooks')">🔔 Webhooks & Notificações</button>`;
+                html += `<button class="tab-btn" id="t-webhooks" onclick="mudarAba('webhooks')">🔔 Webhooks</button>`;
+                html += `<button class="tab-btn" id="t-demo" onclick="mudarAba('demo')" style="background:#b91c1c; color:#fff;">🎬 Demo Vendas (Simulador)</button>`;
             }
             document.getElementById('nav-tabs-container').innerHTML = html;
         }
@@ -221,11 +261,21 @@
         function mudarAba(aba) {
             if (currentTab === 'commission' && aba !== 'commission') pararLeitor();
             currentTab = aba;
-            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing', 'executive', 'webhooks'].forEach(t => {
+            ['realtime', 'predictive', 'esg', 'orders', 'commission', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
                 const el = document.getElementById(`t-${t}`);
                 if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
             });
             renderizar();
+        }
+
+        async function simularFalhaComercial(id) {
+            const res = await fetch('/api/demo/force-failure', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({panel_id: id})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); mudarAba('realtime'); } else { alert("Erro ao simular falha."); }
         }
 
         async function alterarPlano(novoPlano) {
@@ -313,6 +363,24 @@
         function renderizar() {
             const container = document.getElementById('main-container');
             const lista = Object.values(dadosGlobais);
+
+            if (currentTab === 'demo' && currentCargo === 'CEO') {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; background: rgba(42, 17, 17, 0.95); border: 1px solid #ef4444; padding: 25px; border-radius: 8px;">
+                        <h3 style="color:#ef4444; margin-top:0;">🎬 Modo de Demonstração Comercial (Simulador de Falhas)</h3>
+                        <p style="font-size:13px; color:#d1d5db;">Selecione um cubículo abaixo para forçar instantaneamente um estado de falha crítica (sobreaquecimento e disparo de webhook) para apresentações a clientes:</p>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:15px; margin-top:20px;">
+                            ${lista.map(p => `
+                                <div style="background:rgba(15,35,25,0.9); border:1px solid #065f46; padding:15px; border-radius:6px;">
+                                    <h4 style="color:#10b981; margin:0 0 10px 0;">${p.id} -${p.name}</h4>
+                                    <p style="font-size:11px; color:#9ca3af;">Status Atual: ${p.status}</p>
+                                    <button class="btn-action" style="background:#ef4444; color:#fff; width:100%; margin-top:10px;" onclick="simularFalhaComercial('${p.id}')">⚡ Forçar Falha Crítica (Demo)</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>`;
+                return;
+            }
 
             if (currentTab === 'webhooks' && currentCargo === 'CEO') {
                 container.innerHTML = `
