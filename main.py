@@ -2,9 +2,10 @@ import os
 import io
 import random
 import hashlib
+import httpx
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -13,7 +14,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# Configuração de Segurança baseada em SHA-256 nativo (Zero falhas de dependência em nuvem)
+# Configuração de Segurança baseada em SHA-256 nativo
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
@@ -59,7 +60,7 @@ class TenantSubscriptionModel(Base):
     status = Column(String, default="ACTIVE")
     expires_at = Column(DateTime, default=datetime.utcnow() + timedelta(days=365))
     max_panels = Column(Integer, default=25)
-    webhook_url = Column(String, nullable=True, default="https://api.whatsapp.com/send?phone=5516999999999")
+    webhook_url = Column(String, nullable=True, default="https://httpbin.org/post")
 
 class UserModel(Base):
     __tablename__ = "users"
@@ -71,7 +72,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition (Native Secure)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition (Step 2)")
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -103,7 +104,6 @@ def init_db():
     try:
         Base.metadata.create_all(bind=engine)
         
-        # Garante que os utilizadores padrão estejam sempre atualizados e corretos (Upsert via merge)
         default_users = [
             UserModel(username="RafaelFelipe", password=hash_password("123456"), role="CEO", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
             UserModel(username="GerenteCarlos", password=hash_password("123456"), role="Gerente", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
@@ -113,7 +113,6 @@ def init_db():
         for u in default_users:
             db.merge(u)
 
-        # Cria painéis iniciais apenas se a tabela estiver vazia
         if db.query(PanelModel).count() == 0:
             initial_panels = [
                 PanelModel(id="PANEL-01", tenant_id="HITECH-DEFAULT", name="Cubículo Geral de Média Tensão (MT)", location="Subestação Principal - Ribeirão Preto", voltage="13.8 kV", current=454.23, temperature=70.58, gateway_qr="QR-GW-0010", status="NORMAL", component="Barramento de Cobre", predictive_failure_hours=145, recommendation="Inspeção termográfica de rotina em 60 dias.", esg_waste_kwh=0.8),
@@ -121,8 +120,8 @@ def init_db():
                 PanelModel(id="PANEL-03", tenant_id="HITECH-DEFAULT", name="Painel de Bombeamento / Incessor", location="Fábrica 02 - Saneamento", voltage="380V AC", current=530.94, temperature=65.12, gateway_qr="QR-GW-1104", status="NORMAL", component="Inversores de Frequência", predictive_failure_hours=210, recommendation="Filtros operacionais.", esg_waste_kwh=1.1)
             ]
             db.add_all(initial_panels)
-            db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition inicializado com segurança nativa."))
+            db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema inicializado com suporte a Webhooks reais."))
             
         db.commit()
     except Exception as e:
@@ -183,7 +182,7 @@ def register_tenant(data: dict, db: Session = Depends(get_db)):
     if db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == tenant_id).first():
         raise HTTPException(status_code=400, detail="Esta organização já está registada.")
     
-    db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
+    db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
     db.add(UserModel(username=username, password=hash_password(password), role="CEO", tenant_id=tenant_id, plan="Enterprise"))
     db.add(PanelModel(id=f"{tenant_id}-01", tenant_id=tenant_id, name="Subestação Principal da Indústria", location="Setor Industrial Principal", voltage="13.8 kV", current=350.0, temperature=65.0, gateway_qr="QR-GW-9999", status="NORMAL", component="Barramento Principal", predictive_failure_hours=150, recommendation="Operação estável.", esg_waste_kwh=0.5))
     db.add(AuditLogModel(tenant_id=tenant_id, user_name=username, role="CEO", action="REGISTO_NOVA_EMPRESA", details=f"Organização {tenant_id} comissionada com segurança."))
@@ -316,8 +315,16 @@ def update_webhook(data: dict, db: Session = Depends(get_db), current_user: User
     db.commit()
     return {"status": "success", "message": "Webhook configurado com sucesso!"}
 
+async def send_real_webhook(url: str, payload: dict):
+    """Função assíncrona para disparar notificações reais para sistemas externos (WhatsApp/Telegram/n8n)"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(url, json=payload)
+    except Exception as e:
+        print(f"Erro ao despachar webhook para {url}: {e}")
+
 @app.post("/api/alerts/dispatch")
-def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def dispatch_critical_alert(data: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
         raise HTTPException(status_code=403, detail="Não autorizado.")
     panel_id = data.get("panel_id") if data else None
@@ -328,9 +335,24 @@ def dispatch_critical_alert(data: dict, db: Session = Depends(get_db), current_u
     sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
     webhook_destino = sub.webhook_url if sub and sub.webhook_url else "Nenhum configurado"
 
+    # Disparo real em segundo plano usando BackgroundTasks para não travar a UI
+    if sub and sub.webhook_url:
+        payload = {
+            "event": "CRITICAL_ALERT",
+            "tenant_id": current_user.tenant_id,
+            "panel_id": panel.id,
+            "panel_name": panel.name,
+            "location": panel.location,
+            "temperature": panel.temperature,
+            "current": panel.current,
+            "recommendation": panel.recommendation,
+            "timestamp": str(datetime.utcnow())
+        }
+        background_tasks.add_task(send_real_webhook, sub.webhook_url, payload)
+
     db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="ALERTA_WEBHOOK", details=f"Alerta crítico despachado para {panel.id} via Webhook ({webhook_destino})."))
     db.commit()
-    return {"status": "success", "message": f"Alerta crítico despachado para {webhook_destino}!"}
+    return {"status": "success", "message": f"Alerta crítico despachado com sucesso para {webhook_destino}!"}
 
 @app.post("/api/validate-nr10-pin")
 def validate_nr10_pin(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
