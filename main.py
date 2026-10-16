@@ -232,8 +232,4 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
 def get_logo():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     logo_path = os.path.join(base_dir, "logo.jpg")
-    if os.path.exists(logo_path):
-        return FileResponse(logo_path)
-    raise HTTPException(status_code=404, detail="Logo não encontrada.")
-
-@app.post("/api/token")
+    if os.path.exists(logo
