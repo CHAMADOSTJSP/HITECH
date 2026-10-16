@@ -72,7 +72,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 3 (Billing & SaaS)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 4 (IoT Telemetry)")
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -121,7 +121,7 @@ def init_db():
             ]
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 3 inicializado com sucesso."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 4 inicializado com ingestão IoT."))
             
         db.commit()
     except Exception as e:
@@ -229,6 +229,43 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         return {"panels": panels_data, "audit_logs": logs_data, "tenant_id": current_user.tenant_id, "billing": billing_info}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/iot/telemetry")
+def ingest_iot_telemetry(data: dict, db: Session = Depends(get_db)):
+    """Endpoint público para ingestão de dados IoT (Gateways / ESP32 / CLPs de Campo)"""
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados de telemetria em falta.")
+    
+    panel_id = data.get("panel_id")
+    tenant_id = data.get("tenant_id", "HITECH-DEFAULT").upper().strip()
+    temperature = data.get("temperature")
+    current = data.get("current")
+    status_val = data.get("status", "NORMAL")
+    
+    panel = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == tenant_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Painel ou organização não encontrada.")
+    
+    if temperature is not None:
+        panel.temperature = float(temperature)
+    if current is not None:
+        panel.current = float(current)
+    if status_val:
+        panel.status = str(status_val)
+        
+    if panel.temperature > 95.0:
+        panel.status = "CRITICO"
+        panel.recommendation = "[IoT] Alerta de temperatura extrema registada em campo!"
+
+    db.add(AuditLogModel(
+        tenant_id=tenant_id, 
+        user_name="GATEWAY_IOT", 
+        role="SYSTEM", 
+        action="TELEMETRIA_CAMPO", 
+        details=f"Telemetria recebida para {panel_id}: {panel.temperature}°C, {panel.current}A."
+    ))
+    db.commit()
+    return {"status": "success", "message": f"Telemetria atualizada para o painel {panel_id}."}
 
 @app.post("/api/demo/force-failure")
 def force_failure(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
