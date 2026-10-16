@@ -72,7 +72,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition (Step 2)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 3 (Billing & SaaS)")
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -121,7 +121,7 @@ def init_db():
             ]
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema inicializado com suporte a Webhooks reais."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 3 inicializado com sucesso."))
             
         db.commit()
     except Exception as e:
@@ -289,17 +289,28 @@ def export_executive_report(db: Session = Depends(get_db), current_user: User = 
 @app.post("/api/tenant/upgrade-plan")
 def upgrade_plan(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "CEO":
-        raise HTTPException(status_code=403, detail="Apenas o CEO pode alterar o plano.")
+        raise HTTPException(status_code=403, detail="Apenas o CEO pode alterar o plano da organização.")
+    
     new_plan = data.get("plan_name", "Enterprise") if data else "Enterprise"
     sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
     if not sub:
         sub = TenantSubscriptionModel(tenant_id=current_user.tenant_id)
         db.add(sub)
+    
     sub.plan_name = new_plan
-    sub.max_panels = 50 if new_plan == "Enterprise" else 10
-    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="BILLING_UPGRADE", details=f"Plano alterado para {new_plan}."))
+    sub.max_panels = 50 if new_plan == "Enterprise" else 15
+    sub.status = "ACTIVE"
+    sub.expires_at = datetime.utcnow() + timedelta(days=365)
+    
+    db.add(AuditLogModel(
+        tenant_id=current_user.tenant_id, 
+        user_name=current_user.username, 
+        role=current_user.role, 
+        action="BILLING_UPGRADE", 
+        details=f"Plano comercial atualizado para {new_plan} (Limite: {sub.max_panels} painéis)."
+    ))
     db.commit()
-    return {"status": "success", "message": f"Assinatura atualizada para {new_plan}!"}
+    return {"status": "success", "message": f"Subscrição atualizada com sucesso para o plano {new_plan}!"}
 
 @app.post("/api/tenant/webhook")
 def update_webhook(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -316,7 +327,6 @@ def update_webhook(data: dict, db: Session = Depends(get_db), current_user: User
     return {"status": "success", "message": "Webhook configurado com sucesso!"}
 
 async def send_real_webhook(url: str, payload: dict):
-    """Função assíncrona para disparar notificações reais para sistemas externos (WhatsApp/Telegram/n8n)"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(url, json=payload)
@@ -335,7 +345,6 @@ async def dispatch_critical_alert(data: dict, background_tasks: BackgroundTasks,
     sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
     webhook_destino = sub.webhook_url if sub and sub.webhook_url else "Nenhum configurado"
 
-    # Disparo real em segundo plano usando BackgroundTasks para não travar a UI
     if sub and sub.webhook_url:
         payload = {
             "event": "CRITICAL_ALERT",
