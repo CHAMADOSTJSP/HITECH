@@ -1,8 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from datetime import datetime
 import io
 import os
@@ -10,8 +10,8 @@ import os
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise")
 
 class LoginPayload(BaseModel):
-    username: str = Field(..., alias="username")
-    password: str = Field(..., alias="password")
+    username: str
+    password: str
 
 class TenantRegister(BaseModel):
     tenant_id: str
@@ -111,6 +111,13 @@ def read_root():
         with open("index.html", "r", encoding="utf-8") as f:
             return f.read()
     return "<h1>Erro: index.html não encontrado no diretório.</h1>"
+
+# Rota explícita para garantir o carregamento correto da imagem de fundo
+@app.get("/logo.jpg")
+def get_logo():
+    if os.path.exists("logo.jpg"):
+        return FileResponse("logo.jpg")
+    raise HTTPException(status_code=404, detail="Logo não encontrada.")
 
 @app.post("/api/token")
 async def login_access_token(request: Request):
@@ -249,6 +256,3 @@ def validate_pin(data: PinValidation):
                 p["assigned_to"] = "RafaelFelipe"
         return {"message": "Assinatura NR-10 validada com sucesso."}
     raise HTTPException(status_code=400, detail="PIN inválido.")
-
-# Servir recursos estáticos (logo.jpg, etc.)
-app.mount("/static", StaticFiles(directory="."), name="static_files")
