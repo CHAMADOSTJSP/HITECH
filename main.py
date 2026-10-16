@@ -73,6 +73,16 @@ class WorkOrderModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     description = Column(String, nullable=True)
 
+class InventoryModel(Base):
+    __tablename__ = "inventory"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="HITECH-DEFAULT", index=True)
+    part_name = Column(String, nullable=False)
+    category = Column(String, default="Elétrica / Manutenção")
+    quantity_in_stock = Column(Integer, default=10)
+    min_threshold = Column(Integer, default=3)
+    unit_cost = Column(Float, default=150.0)
+
 class PushSubscriptionModel(Base):
     __tablename__ = "push_subscriptions"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -89,7 +99,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 9 (PWA Mobile Hub)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 10 (Inventory & Spare Parts Hub)")
 
 class ConnectionManager:
     def __init__(self):
@@ -189,7 +199,10 @@ def init_db():
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
             db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado em campo. Requer troca imediata."))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 9 (PWA Mobile) inicializado com sucesso."))
+            db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Contator Geral 400A", category="Comutação", quantity_in_stock=4, min_threshold=2, unit_cost=450.0))
+            db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Sensor Termopar Tipo K", category="Sensores", quantity_in_stock=15, min_threshold=5, unit_cost=80.0))
+            db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Disjuntor Caixa Moldada 250A", category="Proteção", quantity_in_stock=3, min_threshold=2, unit_cost=950.0))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 10 (Inventário de Peças) inicializado com sucesso."))
             
         db.commit()
     except Exception as e:
@@ -256,6 +269,7 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
         sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
         work_orders = db.query(WorkOrderModel).filter(WorkOrderModel.tenant_id == current_user.tenant_id).all()
+        inventory = db.query(InventoryModel).filter(InventoryModel.tenant_id == current_user.tenant_id).all()
         
         logs_data = [{
             "timestamp": str(l.timestamp), "user_name": l.user_name, "role": l.role,
@@ -267,6 +281,12 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
             "status": w.status, "assigned_technician": w.assigned_technician,
             "created_at": str(w.created_at), "description": w.description
         } for w in work_orders]
+
+        inv_data = [{
+            "id": i.id, "part_name": i.part_name, "category": i.category,
+            "quantity_in_stock": i.quantity_in_stock, "min_threshold": i.min_threshold,
+            "unit_cost": i.unit_cost
+        } for i in inventory]
         
         billing_info = {
             "plan_name": sub.plan_name if sub else "Enterprise",
@@ -280,11 +300,54 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
             "panels": panels_data, 
             "audit_logs": logs_data, 
             "work_orders": wo_data,
+            "inventory": inv_data,
             "tenant_id": current_user.tenant_id, 
             "billing": billing_info
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/inventory/update")
+def update_inventory_item(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem gerir o inventário de peças.")
+    
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados em falta.")
+    
+    part_name = data.get("part_name")
+    category = data.get("category", "Elétrica / Manutenção")
+    qty_change = int(data.get("quantity_change", 0))
+    unit_cost = float(data.get("unit_cost", 100.0))
+    min_threshold = int(data.get("min_threshold", 3))
+
+    if not part_name:
+        raise HTTPException(status_code=400, detail="Nome da peça em falta.")
+
+    item = db.query(InventoryModel).filter(InventoryModel.part_name == part_name, InventoryModel.tenant_id == current_user.tenant_id).first()
+    if item:
+        item.quantity_in_stock += qty_change
+        item.unit_cost = unit_cost
+    else:
+        item = InventoryModel(
+            tenant_id=current_user.tenant_id,
+            part_name=part_name,
+            category=category,
+            quantity_in_stock=qty_change if qty_change > 0 else 5,
+            min_threshold=min_threshold,
+            unit_cost=unit_cost
+        )
+        db.add(item)
+
+    db.add(AuditLogModel(
+        tenant_id=current_user.tenant_id,
+        user_name=current_user.username,
+        role=current_user.role,
+        action="INVENTARIO_ATUALIZACAO",
+        details=f"Peça '{part_name}' atualizada. Ajuste de stock: {qty_change} unidades."
+    ))
+    db.commit()
+    return {"status": "success", "message": f"Inventário atualizado para a peça '{part_name}' com sucesso!"}
 
 @app.post("/api/pwa/subscribe")
 def pwa_subscribe(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -411,21 +474,24 @@ def export_executive_report(db: Session = Depends(get_db), current_user: User = 
         raise HTTPException(status_code=403, detail="Acesso restrito.")
     
     panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
+    inventory = db.query(InventoryModel).filter(InventoryModel.tenant_id == current_user.tenant_id).all()
+    
     output = io.StringIO()
     output.write("====================================================\n")
-    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO (FASE 9 - PWA)\n")
+    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO (FASE 10 - INVENTARIO)\n")
     output.write(f" Organizacao: {current_user.tenant_id} | Data: {datetime.utcnow()}\n")
     output.write("====================================================\n\n")
     
+    output.write("[ESTADO DOS PAINEIS]\n")
     for p in panels:
-        output.write(f"- ID: {p.id} | Nome: {p.name}\n")
-        output.write(f"  Status: {p.status} | Temp: {p.temperature}°C | Corrente: {p.current}A\n")
-        output.write(f"  Previsao de Falha (IA): {p.predictive_failure_hours}h\n")
-        output.write(f"  Recomendacao Analitica: {p.recommendation}\n")
-        output.write("-" * 50 + "\n")
+        output.write(f"- {p.id} ({p.name}) | Status: {p.status} | Temp: {p.temperature}°C | Previsao Falha: {p.predictive_failure_hours}h\n")
+        
+    output.write("\n[INVENTARIO DE PECAS E ALMOXARIFADO]\n")
+    for i in inventory:
+        output.write(f"- Peca: {i.part_name} | Categoria: {i.category} | Stock: {i.quantity_in_stock} (Min: {i.min_threshold}) | Custo Unit.: R$ {i.unit_cost}\n")
         
     output.seek(0)
-    filename = f"hitech_executive_report_pwa_{current_user.tenant_id}.txt"
+    filename = f"hitech_executive_report_inventory_{current_user.tenant_id}.txt"
     return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @app.get("/")
