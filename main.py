@@ -42,6 +42,13 @@ class PanelModel(Base):
     esg_waste_kwh = Column(Float, default=1.2)
     assigned_to = Column(String, nullable=True)
 
+class PanelHistoryModel(Base):
+    __tablename__ = "panel_history"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    panel_id = Column(String, index=True, nullable=False)
+    timestamp = Column(String, nullable=False)
+    temperature = Column(Float, nullable=False)
+
 class AuditLogModel(Base):
     __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -93,7 +100,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Operational Hub")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Charts Hub")
 
 class ConnectionManager:
     def __init__(self):
@@ -162,10 +169,19 @@ def init_db():
                 PanelModel(id="PANEL-03", tenant_id="HITECH-DEFAULT", name="Painel de Bombeamento / Incessor", location="Fábrica 02 - Saneamento", voltage="380V AC", current=530.94, temperature=65.12, gateway_qr="QR-GW-1104", status="NORMAL", component="Inversores de Frequência", predictive_failure_hours=210, recommendation="Filtros operacionais.", esg_waste_kwh=1.1)
             ]
             db.add_all(initial_panels)
+            
+            # Adicionar histórico simulado inicial para os gráficos
+            now = datetime.utcnow()
+            for p in initial_panels:
+                base_temp = p.temperature
+                for i in range(5):
+                    t_point = (now - timedelta(minutes=(5 - i) * 10)).strftime("%H:%M")
+                    db.add(PanelHistoryModel(panel_id=p.id, timestamp=t_point, temperature=round(base_temp + random.uniform(-1.5, 1.0), 2)))
+
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
-            db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado em campo."))
+            db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado."))
             db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Contator Geral 400A", category="Comutação", quantity_in_stock=4, min_threshold=2, unit_cost=450.0))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema operacional inicializado."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema com histórico de gráficos inicializado."))
             
         db.commit()
     except Exception as e:
@@ -253,111 +269,11 @@ async def force_failure(data: dict, db: Session = Depends(get_db), current_user:
     panel.predictive_failure_hours = 2
     panel.recommendation = "ALERTA CRÍTICO: Sobreaquecimento extremo detetado!"
     
+    # Registar histórico da falha
+    db.add(PanelHistoryModel(panel_id=panel.id, timestamp=datetime.utcnow().strftime("%H:%M"), temperature=panel.temperature))
     db.add(AuditLogModel(
         tenant_id=current_user.tenant_id,
         user_name=current_user.username,
         role=current_user.role,
         action="FORCAR_FALHA",
-        details=f"Falha crítica simulada no painel {panel_id}."
-    ))
-    db.commit()
-
-    sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
-    if sub and sub.webhook_url:
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(sub.webhook_url, json={"event": "CRITICAL_ALERT", "panel_id": panel.id, "temperature": panel.temperature}, timeout=5.0)
-        except Exception:
-            pass
-
-    await manager.broadcast({"event": "PANEL_UPDATE", "panel_id": panel.id, "status": "CRITICO"})
-    return {"status": "success", "message": f"Falha crítica simulada com sucesso no cubículo {panel.id}!"}
-
-@app.get("/api/panels")
-def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    try:
-        panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
-        
-        panels_data = []
-        for p in panels:
-            curr = p.current
-            temp = p.temperature
-            if p.status != "CRITICO":
-                curr = round(max(10.0, p.current + random.uniform(-1.2, 1.2)), 2)
-                temp = round(max(20.0, p.temperature + random.uniform(-0.3, 0.3)), 2)
-            
-            panels_data.append({
-                "id": p.id, "name": p.name, "location": p.location, "voltage": p.voltage,
-                "current": curr, "temperature": temp, "gateway_qr": p.gateway_qr,
-                "status": p.status, "component": p.component, "predictive_failure_hours": p.predictive_failure_hours,
-                "recommendation": p.recommendation, "esg_waste_kwh": p.esg_waste_kwh, "assigned_to": p.assigned_to
-            })
-
-        logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
-        sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
-        work_orders = db.query(WorkOrderModel).filter(WorkOrderModel.tenant_id == current_user.tenant_id).all()
-        inventory = db.query(InventoryModel).filter(InventoryModel.tenant_id == current_user.tenant_id).all()
-        
-        logs_data = [{"timestamp": str(l.timestamp), "user_name": l.user_name, "role": l.role, "action": l.action, "details": l.details} for l in logs]
-        wo_data = [{"id": w.id, "panel_id": w.panel_id, "title": w.title, "priority": w.priority, "status": w.status, "assigned_technician": w.assigned_technician, "created_at": str(w.created_at), "description": w.description} for w in work_orders]
-        inv_data = [{"id": i.id, "part_name": i.part_name, "category": i.category, "quantity_in_stock": i.quantity_in_stock, "min_threshold": i.min_threshold, "unit_cost": i.unit_cost} for i in inventory]
-        
-        billing_info = {
-            "plan_name": sub.plan_name if sub else "Enterprise",
-            "status": sub.status if sub else "ACTIVE",
-            "expires_at": str(sub.expires_at) if sub else "2027-10-15",
-            "max_panels": sub.max_panels if sub else 25,
-            "webhook_url": sub.webhook_url if sub else ""
-        }
-
-        return {
-            "panels": panels_data, "audit_logs": logs_data, "work_orders": wo_data,
-            "inventory": inv_data, "tenant_id": current_user.tenant_id, "billing": billing_info
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/inventory/update")
-def update_inventory_item(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role not in ["CEO", "Gerente"]:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
-    
-    part_name = data.get("part_name")
-    category = data.get("category", "Elétrica")
-    qty_change = int(data.get("quantity_change", 0))
-    unit_cost = float(data.get("unit_cost", 150.0))
-    min_threshold = int(data.get("min_threshold", 3))
-
-    item = db.query(InventoryModel).filter(InventoryModel.part_name == part_name, InventoryModel.tenant_id == current_user.tenant_id).first()
-    if item:
-        item.quantity_in_stock += qty_change
-        item.unit_cost = unit_cost
-    else:
-        db.add(InventoryModel(tenant_id=current_user.tenant_id, part_name=part_name, category=category, quantity_in_stock=qty_change, min_threshold=min_threshold, unit_cost=unit_cost))
-    
-    db.commit()
-    return {"status": "success", "message": "Inventário atualizado com sucesso!"}
-
-@app.websocket("/ws/panels")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-
-@app.get("/api/export/executive-report")
-def export_executive_report(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    output = io.StringIO()
-    output.write("HITECH VOLTGUARD - RELATORIO EXECUTIVO OPERACIONAL\n")
-    output.seek(0)
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": "attachment; filename=relatorio.txt"})
-
-# Rota raiz restaurada para servir o index.html corretamente
-@app.get("/")
-def serve_index():
-    index_path = "index.html"
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    raise HTTPException(status_code=404, detail="index.html não encontrado no diretório.")
+        details=f"Falha crítica simulada no painel {panel_
