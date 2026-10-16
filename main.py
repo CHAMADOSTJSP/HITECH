@@ -73,6 +73,12 @@ class WorkOrderModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     description = Column(String, nullable=True)
 
+class PushSubscriptionModel(Base):
+    __tablename__ = "push_subscriptions"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    username = Column(String, index=True, nullable=False)
+    endpoint_data = Column(String, nullable=False)
+
 class UserModel(Base):
     __tablename__ = "users"
     username = Column(String, primary_key=True, index=True)
@@ -83,7 +89,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 8 (AI Predictive Engine)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 9 (PWA Mobile Hub)")
 
 class ConnectionManager:
     def __init__(self):
@@ -124,6 +130,35 @@ def get_logo():
         return FileResponse(logo_path)
     raise HTTPException(status_code=404, detail="Logo não encontrada.")
 
+@app.get("/manifest.json")
+def get_manifest():
+    manifest_content = """{
+  "name": "HITECH VoltGuard SCADA",
+  "short_name": "VoltGuard",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f19",
+  "theme_color": "#1e293b",
+  "icons": [
+    {
+      "src": "/logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    }
+  ]
+}"""
+    return StreamingResponse(iter([manifest_content]), media_type="application/json")
+
+@app.get("/sw.js")
+def get_service_worker():
+    sw_content = """self.addEventListener('install', (event) => {
+    self.skipWaiting();
+});
+self.addEventListener('fetch', (event) => {
+    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+});"""
+    return StreamingResponse(iter([sw_content]), media_type="application/javascript")
+
 def get_db():
     db = SessionLocal()
     try:
@@ -154,7 +189,7 @@ def init_db():
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
             db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado em campo. Requer troca imediata."))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 8 (IA Preditiva) inicializado com sucesso."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 9 (PWA Mobile) inicializado com sucesso."))
             
         db.commit()
     except Exception as e:
@@ -251,6 +286,23 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/pwa/subscribe")
+def pwa_subscribe(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    endpoint = data.get("endpoint", "") if data else ""
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Endpoint push em falta.")
+    
+    db.add(PushSubscriptionModel(username=current_user.username, endpoint_data=endpoint))
+    db.add(AuditLogModel(
+        tenant_id=current_user.tenant_id,
+        user_name=current_user.username,
+        role=current_user.role,
+        action="PWA_PUSH_SUBSCRIBE",
+        details=f"Dispositivo móvel registado para notificações push para o utilizador {current_user.username}."
+    ))
+    db.commit()
+    return {"status": "success", "message": "Dispositivo registado com sucesso para receber alertas PWA!"}
+
 @app.post("/api/ai/predictive-analysis")
 def run_ai_predictive_analysis(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in ["CEO", "Gerente"]:
@@ -264,7 +316,6 @@ def run_ai_predictive_analysis(data: dict, db: Session = Depends(get_db), curren
     if not panel:
         raise HTTPException(status_code=404, detail="Painel não encontrado.")
     
-    # Motor de IA: Análise de desvio térmico e estimativa de degradação
     temp = panel.temperature
     risk_score = round(min(100.0, max(5.0, (temp / 110.0) * 100.0)), 2)
     
@@ -362,7 +413,7 @@ def export_executive_report(db: Session = Depends(get_db), current_user: User = 
     panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
     output = io.StringIO()
     output.write("====================================================\n")
-    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO (FASE 8 - IA)\n")
+    output.write(" HITECH VOLTGUARD - RELATORIO EXECUTIVO (FASE 9 - PWA)\n")
     output.write(f" Organizacao: {current_user.tenant_id} | Data: {datetime.utcnow()}\n")
     output.write("====================================================\n\n")
     
@@ -374,7 +425,7 @@ def export_executive_report(db: Session = Depends(get_db), current_user: User = 
         output.write("-" * 50 + "\n")
         
     output.seek(0)
-    filename = f"hitech_executive_report_ai_{current_user.tenant_id}.txt"
+    filename = f"hitech_executive_report_pwa_{current_user.tenant_id}.txt"
     return StreamingResponse(iter([output.getvalue()]), media_type="text/plain", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @app.get("/")
