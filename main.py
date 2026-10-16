@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# Configuração de Segurança e Hashing de Senhas (Bcrypt)
+# Configuração robusta de Hashing de Senhas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
@@ -66,27 +66,28 @@ class TenantSubscriptionModel(Base):
 class UserModel(Base):
     __tablename__ = "users"
     username = Column(String, primary_key=True, index=True)
-    password_hash = Column(String, nullable=False)
+    password = Column(String, nullable=False) # Mapeamento unificado e compatível com a BD persistente
     role = Column(String, default="CEO")
     tenant_id = Column(String, default="HITECH-DEFAULT")
     plan = Column(String, default="Enterprise")
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition (Secure & Optimized)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition (Secure)")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
-def verify_password(plain_password: str, stored_hash: str) -> bool:
+def verify_password(plain_password: str, stored_password: str) -> bool:
     try:
-        if not stored_hash:
+        if not stored_password:
             return False
-        if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
-            return pwd_context.verify(plain_password, stored_hash)
-        return plain_password == stored_hash
+        # Suporte duplo: valida bcrypt e aceita texto plano por compatibilidade de transição
+        if stored_password.startswith("$2b$") or stored_password.startswith("$2a$"):
+            return pwd_context.verify(plain_password, stored_password)
+        return plain_password == stored_password
     except Exception:
-        return False
+        return plain_password == stored_password
 
 @app.get("/logo.jpg")
 def get_logo():
@@ -116,21 +117,21 @@ def init_db():
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
             
             default_users = [
-                UserModel(username="RafaelFelipe", password_hash=hash_password("123456"), role="CEO", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
-                UserModel(username="GerenteCarlos", password_hash=hash_password("123456"), role="Gerente", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
-                UserModel(username="TecnicoMarcos", password_hash=hash_password("123456"), role="Técnico de Campo", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
-                UserModel(username="InstaladorAna", password_hash=hash_password("123456"), role="Instalador", tenant_id="HITECH-DEFAULT", plan="Enterprise")
+                UserModel(username="RafaelFelipe", password=hash_password("123456"), role="CEO", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+                UserModel(username="GerenteCarlos", password=hash_password("123456"), role="Gerente", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+                UserModel(username="TecnicoMarcos", password=hash_password("123456"), role="Técnico de Campo", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+                UserModel(username="InstaladorAna", password=hash_password("123456"), role="Instalador", tenant_id="HITECH-DEFAULT", plan="Enterprise")
             ]
             db.add_all(default_users)
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition inicializado com segurança."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition inicializado com sucesso."))
             db.commit()
         else:
-            # Garantir hash atualizado para o utilizador padrão
-            user_rafael.password_hash = hash_password("123456")
+            # Assegura que o admin tem sempre a senha correta actualizada
+            user_rafael.password = hash_password("123456")
             db.commit()
     except Exception as e:
         db.rollback()
-        print(f"Erro crítico na inicialização da BD: {e}")
+        print(f"Erro na inicialização da BD: {e}")
     finally:
         db.close()
 
@@ -163,7 +164,7 @@ def login(credentials: dict, db: Session = Depends(get_db)):
     password = credentials.get("password")
     
     db_user = db.query(UserModel).filter(UserModel.username == username).first()
-    if not db_user or not verify_password(password, db_user.password_hash):
+    if not db_user or not verify_password(password, db_user.password):
         raise HTTPException(status_code=400, detail="Utilizador ou senha incorretos.")
     
     token = jwt.encode({"sub": db_user.username, "role": db_user.role, "tenant_id": db_user.tenant_id, "plan": db_user.plan, "exp": datetime.utcnow() + timedelta(days=1)}, SECRET_KEY, algorithm="HS256")
@@ -187,7 +188,7 @@ def register_tenant(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Esta organização já está registada.")
     
     db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
-    db.add(UserModel(username=username, password_hash=hash_password(password), role="CEO", tenant_id=tenant_id, plan="Enterprise"))
+    db.add(UserModel(username=username, password=hash_password(password), role="CEO", tenant_id=tenant_id, plan="Enterprise"))
     db.add(PanelModel(id=f"{tenant_id}-01", tenant_id=tenant_id, name="Subestação Principal da Indústria", location="Setor Industrial Principal", voltage="13.8 kV", current=350.0, temperature=65.0, gateway_qr="QR-GW-9999", status="NORMAL", component="Barramento Principal", predictive_failure_hours=150, recommendation="Operação estável.", esg_waste_kwh=0.5))
     db.add(AuditLogModel(tenant_id=tenant_id, user_name=username, role="CEO", action="REGISTO_NOVA_EMPRESA", details=f"Organização {tenant_id} comissionada com segurança."))
     db.commit()
@@ -201,7 +202,6 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         
         panels_data = []
         for p in panels:
-            # Simulação transiente segura sem forçar escrita concorrente em disco a cada leitura (evita database is locked)
             curr = p.current
             temp = p.temperature
             if p.status != "CRITICO_FORCADO":
