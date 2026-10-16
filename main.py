@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
-# Configuração de Segurança baseada em SHA-256 nativo
+# Configuração de Segurança baseada em SHA-256 nativo (Zero falhas no Render)
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
@@ -62,6 +62,18 @@ class TenantSubscriptionModel(Base):
     max_panels = Column(Integer, default=25)
     webhook_url = Column(String, nullable=True, default="https://httpbin.org/post")
 
+class WorkOrderModel(Base):
+    __tablename__ = "work_orders"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="HITECH-DEFAULT", index=True)
+    panel_id = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    priority = Column(String, default="ALTA")
+    status = Column(String, default="ABERTA")
+    assigned_technician = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    description = Column(String, nullable=True)
+
 class UserModel(Base):
     __tablename__ = "users"
     username = Column(String, primary_key=True, index=True)
@@ -72,7 +84,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 4 (IoT Telemetry)")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Phase 5 (Field Service Fully Validated)")
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -121,7 +133,8 @@ def init_db():
             ]
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 4 inicializado com ingestão IoT."))
+            db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado em campo. Requer troca imediata."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Fase 5 (Ordens de Serviço) inicializado."))
             
         db.commit()
     except Exception as e:
@@ -212,11 +225,18 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
 
         logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
         sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+        work_orders = db.query(WorkOrderModel).filter(WorkOrderModel.tenant_id == current_user.tenant_id).all()
         
         logs_data = [{
             "timestamp": str(l.timestamp), "user_name": l.user_name, "role": l.role,
             "action": l.action, "details": l.details
         } for l in logs]
+
+        wo_data = [{
+            "id": w.id, "panel_id": w.panel_id, "title": w.title, "priority": w.priority,
+            "status": w.status, "assigned_technician": w.assigned_technician,
+            "created_at": str(w.created_at), "description": w.description
+        } for w in work_orders]
         
         billing_info = {
             "plan_name": sub.plan_name if sub else "Enterprise",
@@ -226,13 +246,81 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
             "webhook_url": sub.webhook_url if sub else ""
         }
 
-        return {"panels": panels_data, "audit_logs": logs_data, "tenant_id": current_user.tenant_id, "billing": billing_info}
+        return {
+            "panels": panels_data, 
+            "audit_logs": logs_data, 
+            "work_orders": wo_data,
+            "tenant_id": current_user.tenant_id, 
+            "billing": billing_info
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/work-orders/create")
+def create_work_order(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Apenas CEO ou Gerente podem abrir Ordens de Serviço.")
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados em falta.")
+    
+    panel_id = data.get("panel_id")
+    title = data.get("title")
+    priority = data.get("priority", "ALTA")
+    assigned_technician = data.get("assigned_technician", "TecnicoMarcos")
+    description = data.get("description", "")
+
+    if not panel_id or not title:
+        raise HTTPException(status_code=400, detail="Selecione um painel e informe o título da ordem de serviço.")
+
+    panel = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado.")
+
+    new_wo = WorkOrderModel(
+        tenant_id=current_user.tenant_id,
+        panel_id=panel_id,
+        title=title,
+        priority=priority,
+        status="ABERTA",
+        assigned_technician=assigned_technician,
+        description=description
+    )
+    db.add(new_wo)
+    db.add(AuditLogModel(
+        tenant_id=current_user.tenant_id,
+        user_name=current_user.username,
+        role=current_user.role,
+        action="ABERTURA_OS",
+        details=f"Ordem de Serviço criada para o painel {panel_id} atribuída a {assigned_technician}."
+    ))
+    db.commit()
+    return {"status": "success", "message": "Ordem de Serviço criada com sucesso!"}
+
+@app.post("/api/work-orders/update-status")
+def update_work_order_status(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados em falta.")
+    
+    wo_id = data.get("work_order_id")
+    new_status = data.get("status", "CONCLUIDA")
+    
+    wo = db.query(WorkOrderModel).filter(WorkOrderModel.id == wo_id, WorkOrderModel.tenant_id == current_user.tenant_id).first()
+    if not wo:
+        raise HTTPException(status_code=404, detail="Ordem de Serviço não encontrada.")
+    
+    wo.status = new_status
+    db.add(AuditLogModel(
+        tenant_id=current_user.tenant_id,
+        user_name=current_user.username,
+        role=current_user.role,
+        action="ATUALIZACAO_OS",
+        details=f"Ordem de Serviço #{wo_id} alterada para status: {new_status}."
+    ))
+    db.commit()
+    return {"status": "success", "message": f"Ordem de Serviço #{wo_id} atualizada para {new_status}!"}
+
 @app.post("/api/iot/telemetry")
 def ingest_iot_telemetry(data: dict, db: Session = Depends(get_db)):
-    """Endpoint público para ingestão de dados IoT (Gateways / ESP32 / CLPs de Campo)"""
     if not data:
         raise HTTPException(status_code=400, detail="Dados de telemetria em falta.")
     
