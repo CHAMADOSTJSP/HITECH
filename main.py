@@ -59,9 +59,17 @@ class TenantSubscriptionModel(Base):
     max_panels = Column(Integer, default=25)
     webhook_url = Column(String, nullable=True, default="https://api.whatsapp.com/send?phone=5516999999999")
 
+class UserModel(Base):
+    __tablename__ = "users"
+    username = Column(String, primary_key=True, index=True)
+    password = Column(String, nullable=False)
+    role = Column(String, default="CEO")
+    tenant_id = Column(String, default="HITECH-DEFAULT")
+    plan = Column(String, default="Enterprise")
+
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Webhook Edition")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Ultimate Edition")
 
 @app.get("/logo.jpg")
 def get_logo():
@@ -88,19 +96,20 @@ def init_db():
             ]
             db.add_all(initial_panels)
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Webhook Edition inicializado com sucesso."))
+            
+            default_users = [
+                UserModel(username="RafaelFelipe", password="123456", role="CEO", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+                UserModel(username="GerenteCarlos", password="123456", role="Gerente", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+                UserModel(username="TecnicoMarcos", password="123456", role="Técnico de Campo", tenant_id="HITECH-DEFAULT", plan="Enterprise"),
+                UserModel(username="InstaladorAna", password="123456", role="Instalador", tenant_id="HITECH-DEFAULT", plan="Enterprise")
+            ]
+            db.add_all(default_users)
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema Ultimate Edition inicializado com sucesso."))
             db.commit()
     finally:
         db.close()
 
 init_db()
-
-USERS_DB = {
-    "RafaelFelipe": {"password": "123456", "role": "CEO", "tenant_id": "HITECH-DEFAULT", "plan": "Enterprise"},
-    "GerenteCarlos": {"password": "123456", "role": "Gerente", "tenant_id": "HITECH-DEFAULT", "plan": "Enterprise"},
-    "TecnicoMarcos": {"password": "123456", "role": "Técnico de Campo", "tenant_id": "HITECH-DEFAULT", "plan": "Enterprise"},
-    "InstaladorAna": {"password": "123456", "role": "Instalador", "tenant_id": "HITECH-DEFAULT", "plan": "Enterprise"}
-}
 
 class User(BaseModel):
     username: str
@@ -116,20 +125,52 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         raise HTTPException(status_code=401, detail="Token inválido.")
 
 @app.post("/api/token")
-def login(credentials: dict):
-    user = USERS_DB.get(credentials.get("username"))
-    if not user or user["password"] != credentials.get("password"):
-        raise HTTPException(status_code=400, detail="Credenciais inválidas.")
-    token = jwt.encode({"sub": credentials.get("username"), "role": user["role"], "tenant_id": user["tenant_id"], "plan": user["plan"], "exp": datetime.utcnow() + timedelta(days=1)}, SECRET_KEY, algorithm="HS256")
-    return {"access_token": token, "token_type": "bearer", "role": user["role"], "plan": user["plan"]}
+def login(credentials: dict, db: Session = Depends(get_db)):
+    username = credentials.get("username")
+    password = credentials.get("password")
+    
+    db_user = db.query(UserModel).filter(UserModel.username == username, UserModel.password == password).first()
+    if not db_user:
+        raise HTTPException(status_code=400, detail="Usuário ou senha incorretos.")
+    
+    token = jwt.encode({"sub": db_user.username, "role": db_user.role, "tenant_id": db_user.tenant_id, "plan": db_user.plan, "exp": datetime.utcnow() + timedelta(days=1)}, SECRET_KEY, algorithm="HS256")
+    return {"access_token": token, "token_type": "bearer", "role": db_user.role, "plan": db_user.plan}
+
+@app.post("/api/tenant/register")
+def register_tenant(data: dict, db: Session = Depends(get_db)):
+    tenant_id = data.get("tenant_id", "").upper().strip()
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    
+    if not tenant_id or not username or not password:
+        raise HTTPException(status_code=400, detail="Preencha todos os campos do registo.")
+    
+    if db.query(UserModel).filter(UserModel.username == username).first():
+        raise HTTPException(status_code=400, detail="Este nome de usuário já está em uso.")
+    
+    if db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == tenant_id).first():
+        raise HTTPException(status_code=400, detail="Esta organização já está registada.")
+    
+    # Criar subscrição e utilizador CEO da nova empresa
+    db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://api.whatsapp.com/send?phone=5516999999999"))
+    db.add(UserModel(username=username, password=password, role="CEO", tenant_id=tenant_id, plan="Enterprise"))
+    
+    # Criar cubículo inicial padrão para o novo tenant
+    db.add(PanelModel(id=f"{tenant_id}-01", tenant_id=tenant_id, name="Subestação Principal da Indústria", location="Setor Industrial Principal", voltage="13.8 kV", current=350.0, temperature=65.0, gateway_qr="QR-GW-9999", status="NORMAL", component="Barramento Principal", predictive_failure_hours=150, recommendation="Operação estável.", esg_waste_kwh=0.5))
+    
+    db.add(AuditLogModel(tenant_id=tenant_id, user_name=username, role="CEO", action="REGISTO_NOVA_EMPRESA", details=f"Organização {tenant_id} comissionada com sucesso via self-service."))
+    db.commit()
+    
+    return {"status": "success", "message": "Organização registada com sucesso! Faça login com suas credenciais."}
 
 @app.get("/api/panels")
 def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         panels = db.query(PanelModel).filter(PanelModel.tenant_id == current_user.tenant_id).all()
         for p in panels:
-            p.current = round(max(10.0, p.current + random.uniform(-1.2, 1.2)), 2)
-            p.temperature = round(max(20.0, p.temperature + random.uniform(-0.3, 0.3)), 2)
+            if p.status != "CRITICO_FORCADO":
+                p.current = round(max(10.0, p.current + random.uniform(-1.2, 1.2)), 2)
+                p.temperature = round(max(20.0, p.temperature + random.uniform(-0.3, 0.3)), 2)
         db.commit()
 
         logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
@@ -158,6 +199,26 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
         return {"panels": panels_data, "audit_logs": logs_data, "tenant_id": current_user.tenant_id, "billing": billing_info}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/demo/force-failure")
+def force_failure(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "CEO":
+        raise HTTPException(status_code=403, detail="Apenas o CEO pode acionar o simulador de demonstração.")
+    
+    panel_id = data.get("panel_id")
+    panel = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado.")
+    
+    panel.status = "CRITICO"
+    panel.temperature = 108.5
+    panel.current = 680.4
+    panel.predictive_failure_hours = 2
+    panel.recommendation = "[DEMO] Sobreaquecimento crítico simulado para apresentação comercial!"
+    
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="DEMO_FALHA_FORCADA", details=f"Falha crítica simulada no painel {panel_id}."))
+    db.commit()
+    return {"status": "success", "message": f"Falha crítica simulada com sucesso no painel {panel_id}!"}
 
 @app.get("/api/export/audit-csv")
 def export_audit_csv(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
