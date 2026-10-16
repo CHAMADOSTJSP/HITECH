@@ -14,17 +14,20 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
+# Configurações de Segurança e JWT
 SECRET_KEY = os.getenv("SECRET_KEY", "hitech_voltguard_super_secret_enterprise_key_2026")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/token")
 
+# Configuração da Base de Dados SQLAlchemy
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./voltguard.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+# --- MODELOS DA BASE DE DADOS ---
 class PanelModel(Base):
     __tablename__ = "panels"
     id = Column(String, primary_key=True, index=True)
@@ -68,6 +71,13 @@ class TenantSubscriptionModel(Base):
     max_panels = Column(Integer, default=25)
     webhook_url = Column(String, nullable=True, default="https://httpbin.org/post")
 
+class TenantRuleModel(Base):
+    __tablename__ = "tenant_rules"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, index=True, nullable=False)
+    max_temperature = Column(Float, default=85.0)
+    max_current = Column(Float, default=500.0)
+
 class WorkOrderModel(Base):
     __tablename__ = "work_orders"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -98,11 +108,10 @@ class UserModel(Base):
     tenant_id = Column(String, default="HITECH-DEFAULT")
     plan = Column(String, default="Enterprise")
 
-Base.metadata.create_all(bind=engine)
-
-# Instanciação correta do FastAPI antes de qualquer rota @app
+# Instanciação primária da aplicação FastAPI
 app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Master Core")
 
+# Gestor de Conexões WebSocket
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -124,6 +133,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Funções Utilitárias de Criptografia
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
@@ -135,13 +145,7 @@ def verify_password(plain_password: str, stored_password: str) -> bool:
     except Exception:
         return plain_password == stored_password
 
-@app.get("/logo.jpg")
-def get_logo():
-    logo_path = "logo.jpg"
-    if os.path.exists(logo_path):
-        return FileResponse(logo_path)
-    raise HTTPException(status_code=404, detail="Logo não encontrada.")
-
+# Gestão de Sessões e Inicialização da Base de Dados
 def get_db():
     db = SessionLocal()
     try:
@@ -161,6 +165,9 @@ def init_db():
         ]
         for u in default_users:
             db.merge(u)
+
+        if db.query(TenantRuleModel).filter(TenantRuleModel.tenant_id == "HITECH-DEFAULT").count() == 0:
+            db.add(TenantRuleModel(tenant_id="HITECH-DEFAULT", max_temperature=85.0, max_current=500.0))
 
         if db.query(PanelModel).count() == 0:
             initial_panels = [
@@ -191,12 +198,21 @@ def init_db():
 
 init_db()
 
+# Esquemas Pydantic
 class User(BaseModel):
     username: str
     role: str
     tenant_id: str
     plan: str
 
+class TelemetryData(BaseModel):
+    panel_id: str
+    temperature: float
+    current: float
+    voltage: Optional[str] = "380V AC"
+    gateway_qr: Optional[str] = None
+
+# Dependência de Autenticação JWT
 def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -209,6 +225,15 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         return User(username=username, role=role, tenant_id=tenant_id, plan=plan)
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Token inválido ou expirado.")
+
+# --- ROTAS DA API ---
+
+@app.get("/logo.jpg")
+def get_logo():
+    logo_path = "logo.jpg"
+    if os.path.exists(logo_path):
+        return FileResponse(logo_path)
+    raise HTTPException(status_code=404, detail="Logo não encontrada.")
 
 @app.post("/api/token")
 def login(credentials: dict, db: Session = Depends(get_db)):
@@ -240,6 +265,7 @@ def register_tenant(data: dict, db: Session = Depends(get_db)):
     new_user = UserModel(username=admin_user, password=hash_password(password), role="CEO", tenant_id=tenant_id, plan="Enterprise")
     db.merge(new_user)
     db.add(TenantSubscriptionModel(tenant_id=tenant_id, plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
+    db.add(TenantRuleModel(tenant_id=tenant_id, max_temperature=85.0, max_current=500.0))
     db.add(AuditLogModel(tenant_id=tenant_id, user_name=admin_user, role="CEO", action="REGISTO_TENANT", details=f"Organização {tenant_id} registada."))
     db.commit()
     
@@ -255,6 +281,25 @@ def save_webhook(data: dict, db: Session = Depends(get_db), current_user: User =
         sub.webhook_url = webhook_url
         db.commit()
     return {"status": "success", "message": "URL de Webhook guardada com sucesso!"}
+
+@app.post("/api/tenant/rules")
+def update_tenant_rules(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Acesso restrito para alterar regras de alarme.")
+        
+    max_temp = float(data.get("max_temperature", 85.0))
+    max_curr = float(data.get("max_current", 500.0))
+    
+    rule = db.query(TenantRuleModel).filter(TenantRuleModel.tenant_id == current_user.tenant_id).first()
+    if rule:
+        rule.max_temperature = max_temp
+        rule.max_current = max_curr
+    else:
+        db.add(TenantRuleModel(tenant_id=current_user.tenant_id, max_temperature=max_temp, max_current=max_curr))
+        
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="CONFIGURAR_REGRAS", details=f"Limites alterados: Temp={max_temp}°C"))
+    db.commit()
+    return {"status": "success", "message": f"Regras de alarme atualizadas para Limite Térmico: {max_temp}°C"}
 
 @app.post("/api/panels/add")
 def add_panel(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -288,35 +333,31 @@ def add_panel(data: dict, db: Session = Depends(get_db), current_user: User = De
     db.commit()
     return {"status": "success", "message": f"Painel {panel_id} adicionado com sucesso!"}
 
-# --- NOVO ENDPOINT DE TELEMETRIA INDUSTRIAL (PASSO 1) ---
-class TelemetryData(BaseModel):
-    panel_id: str
-    temperature: float
-    current: float
-    voltage: Optional[str] = "380V AC"
-    gateway_qr: Optional[str] = None
-
+# Endpoint de Ingestão de Telemetria Industrial (Passo 1 + Regra Dinâmica do Passo 2)
 @app.post("/api/telemetry", tags=["Industrial Ingestion"])
 def ingest_telemetry(data: TelemetryData, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     panel = db.query(PanelModel).filter(PanelModel.id == data.panel_id, PanelModel.tenant_id == current_user.tenant_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail=f"Painel {data.panel_id} não encontrado.")
     
+    rule = db.query(TenantRuleModel).filter(TenantRuleModel.tenant_id == current_user.tenant_id).first()
+    temp_limit = rule.max_temperature if rule else 85.0
+    
     panel.temperature = data.temperature
     panel.current = data.current
     if data.voltage:
         panel.voltage = data.voltage
         
-    if data.temperature > 85.0:
+    if data.temperature > temp_limit:
         panel.status = "CRITICO"
-        panel.recommendation = "ALERTA: Pico térmico detetado via telemetria industrial!"
+        panel.recommendation = f"ALERTA: Temperatura ultrapassou o limite configurado ({temp_limit}°C)!"
     else:
         panel.status = "NORMAL"
         panel.recommendation = "Sistema a operar dentro dos parâmetros nominais."
         
     db.add(PanelHistoryModel(panel_id=panel.id, timestamp=datetime.utcnow().strftime("%H:%M"), temperature=panel.temperature))
     db.commit()
-    return {"status": "success", "message": f"Telemetria de {data.panel_id} atualizada."}
+    return {"status": "success", "message": f"Telemetria de {data.panel_id} atualizada com base no limite de {temp_limit}°C."}
 
 @app.post("/api/demo/force-failure")
 async def force_failure(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -373,6 +414,7 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
 
         logs = db.query(AuditLogModel).filter(AuditLogModel.tenant_id == current_user.tenant_id).order_by(AuditLogModel.timestamp.desc()).limit(50).all()
         sub = db.query(TenantSubscriptionModel).filter(TenantSubscriptionModel.tenant_id == current_user.tenant_id).first()
+        rule = db.query(TenantRuleModel).filter(TenantRuleModel.tenant_id == current_user.tenant_id).first()
         work_orders = db.query(WorkOrderModel).filter(WorkOrderModel.tenant_id == current_user.tenant_id).all()
         inventory = db.query(InventoryModel).filter(InventoryModel.tenant_id == current_user.tenant_id).all()
         
@@ -390,7 +432,9 @@ def get_panels(db: Session = Depends(get_db), current_user: User = Depends(get_c
             "status": sub.status if sub else "ACTIVE",
             "expires_at": str(sub.expires_at) if sub else "2027-10-15",
             "max_panels": sub.max_panels if sub else 25,
-            "webhook_url": sub.webhook_url if sub else ""
+            "webhook_url": sub.webhook_url if sub else "",
+            "max_temperature": rule.max_temperature if rule else 85.0,
+            "max_current": rule.max_current if rule else 500.0
         }
 
         return {
