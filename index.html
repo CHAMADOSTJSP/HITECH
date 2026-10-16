@@ -123,4 +123,200 @@
             <h3 style="color:#10b981; margin-top:0;">📦 Atualizar / Registar Peça (Almoxarifado)</h3>
             <div class="input-group"><label>Nome da Peça</label><input type="text" id="inv-part" placeholder="Ex: Contator Geral 400A"></div>
             <div class="input-group"><label>Categoria</label><input type="text" id="inv-cat" value="Comutação / Manutenção"></div>
-            <div class="input-group"><label>Ajuste de Quantidade (+/-)</label><input type="number" id="inv-qty" value="
+            <div class="input-group"><label>Ajuste de Quantidade (+/-)</label><input type="number" id="inv-qty" value="1"></div>
+            <div class="input-group"><label>Custo Unitário (R$)</label><input type="number" step="0.01" id="inv-cost" value="150.0"></div>
+            <div class="input-group"><label>Limite Mínimo de Alerta</label><input type="number" id="inv-min" value="3"></div>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+                <button class="btn-action" style="background:#6b7280; color:#fff;" onclick="fecharModalInventario()">Cancelar</button>
+                <button class="btn-action" onclick="submeterInventario()">Salvar Peça</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="dashboard-screen">
+        <div class="dash-header">
+            <div>
+                <h1>HITECH VoltGuard SCADA Enterprise</h1>
+                <span>Plataforma Multi-Tenant SaaS Industrial</span>
+            </div>
+            <div class="user-info">
+                <span class="badge-tenant" id="tenant-display">-</span>
+                <span>Usuário: <strong id="user-display">-</strong></span>
+                <span class="badge-cargo" id="cargo-display">-</span>
+                <button class="btn-logout" onclick="location.reload()">Sair</button>
+            </div>
+        </div>
+
+        <div id="kpi-banner" class="kpi-container" style="display:none;"></div>
+        <div class="nav-tabs" id="nav-tabs-container"></div>
+        <div id="main-container" class="panels-grid"></div>
+    </div>
+
+    <script>
+        let currentTab = 'realtime';
+        let currentUser = '', currentCargo = '', tokenJwt = '';
+        let dadosGlobais = {}, auditLogs = [], billingData = [], inventoryData = [], painelAlvo = null, pollingInterval = null;
+        let html5QrCode = null;
+
+        function formatarNome(n) { return n.replace(/([a-z])([A-Z])/g, '$1 $2'); }
+
+        function mostrarRegisto(mostrar) {
+            document.getElementById('login-screen').style.display = mostrar ? 'none' : 'block';
+            document.getElementById('register-screen').style.display = mostrar ? 'block' : 'none';
+        }
+
+        async function registarTenant() {
+            const tenant = document.getElementById('reg-tenant').value.trim();
+            const user = document.getElementById('reg-user').value.trim();
+            const pass = document.getElementById('reg-pass').value.trim();
+            const errEl = document.getElementById('reg-error-msg');
+
+            try {
+                const res = await fetch('/api/tenant/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({tenant_id: tenant, username: user, password: pass})
+                });
+                const data = await res.json();
+                if(!res.ok) throw new Error(data.detail || "Erro ao registar.");
+                alert(data.message);
+                mostrarRegisto(false);
+            } catch (err) {
+                errEl.innerText = err.message;
+            }
+        }
+
+        async function realizarLogin() {
+            const usuario = document.getElementById('usuario').value.trim();
+            const senha = document.getElementById('senha').value.trim();
+            const errEl = document.getElementById('error-msg');
+
+            try {
+                const res = await fetch('/api/token', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: usuario, password: senha})
+                });
+                const data = await res.json();
+                if(!res.ok) throw new Error(data.detail || "Erro no login.");
+
+                tokenJwt = data.access_token;
+                currentCargo = data.role;
+                currentUser = usuario;
+
+                document.getElementById('user-display').innerText = formatarNome(usuario);
+                document.getElementById('cargo-display').innerText = currentCargo;
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('dashboard-screen').style.display = 'block';
+
+                construirAbas();
+                atualizarKPIs();
+                iniciarPolling();
+            } catch (err) {
+                errEl.innerText = err.message;
+            }
+        }
+
+        function construirAbas() {
+            let html = `<button class="tab-btn active" id="t-realtime" onclick="mudarAba('realtime')">📊 Tempo Real</button>`;
+            if (currentCargo === 'CEO' || currentCargo === 'Gerente') {
+                html += `<button class="tab-btn" id="t-predictive" onclick="mudarAba('predictive')">🤖 IA Preditiva</button>`;
+                html += `<button class="tab-btn" id="t-esg" onclick="mudarAba('esg')">🌱 ESG</button>`;
+                html += `<button class="tab-btn" id="t-inventory" onclick="mudarAba('inventory')">📦 Almoxarifado</button>`;
+            }
+            html += `<button class="tab-btn" id="t-orders" onclick="mudarAba('orders')">📋 Ordens de Serviço</button>`;
+            if (currentCargo === 'Instalador' || currentCargo === 'CEO') {
+                html += `<button class="tab-btn" id="t-commission" onclick="mudarAba('commission')">🛠️ Comissionamento</button>`;
+            }
+            if (currentCargo === 'CEO') {
+                html += `<button class="tab-btn" id="t-audit" onclick="mudarAba('audit')">🛡️ Auditoria</button>`;
+                html += `<button class="tab-btn" id="t-billing" onclick="mudarAba('billing')">💳 Assinatura & Billing</button>`;
+                html += `<button class="tab-btn" id="t-executive" onclick="mudarAba('executive')">📈 Relatório Executivo</button>`;
+                html += `<button class="tab-btn" id="t-webhooks" onclick="mudarAba('webhooks')">🔔 Webhooks</button>`;
+                html += `<button class="tab-btn" id="t-demo" onclick="mudarAba('demo')" style="background:#b91c1c; color:#fff;">🎬 Demo Vendas (Simulador)</button>`;
+            }
+            document.getElementById('nav-tabs-container').innerHTML = html;
+        }
+
+        function atualizarKPIs() {
+            const banner = document.getElementById('kpi-banner');
+            banner.style.display = 'grid';
+            banner.innerHTML = currentCargo === 'CEO' ? `
+                <div class="kpi-card"><h4>Risco</h4><span style="color:#ef4444;">1 Crítico</span></div>
+                <div class="kpi-card"><h4>Downtime</h4><span>R$ 14.500 / h</span></div>
+                <div class="kpi-card"><h4>Confiabilidade</h4><span>98.4%</span></div>
+                <div class="kpi-card"><h4>ESG</h4><span>124 kWh</span></div>
+            ` : `
+                <div class="kpi-card"><h4>Equipe</h4><span>100% Ativa</span></div>
+                <div class="kpi-card"><h4>MTTR</h4><span>32 min</span></div>
+                <div class="kpi-card"><h4>Eficiência</h4><span>99.1%</span></div>
+            `;
+        }
+
+        function iniciarPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            
+            function buscar() {
+                fetch('/api/panels', {headers: {'Authorization': `Bearer ${tokenJwt}`}})
+                    .then(res => res.json())
+                    .then(data => {
+                        if(data.panels) {
+                            billingData = data.billing || {};
+                            document.getElementById('tenant-display').innerText = `Organização: ${data.tenant_id} (${billingData.plan_name})`;
+                            auditLogs = data.audit_logs || [];
+                            inventoryData = data.inventory || [];
+                            dadosGlobais = {};
+                            data.panels.forEach(p => { dadosGlobais[p.id] = p; });
+                            renderizar();
+                        }
+                    }).catch(err => console.error(err));
+            }
+
+            buscar();
+            pollingInterval = setInterval(buscar, 3000);
+        }
+
+        function mudarAba(aba) {
+            if (currentTab === 'commission' && aba !== 'commission') pararLeitor();
+            currentTab = aba;
+            ['realtime', 'predictive', 'esg', 'inventory', 'orders', 'commission', 'audit', 'billing', 'executive', 'webhooks', 'demo'].forEach(t => {
+                const el = document.getElementById(`t-${t}`);
+                if(el) el.className = t === aba ? 'tab-btn active' : 'tab-btn';
+            });
+            renderizar();
+        }
+
+        async function simularFalhaComercial(id) {
+            const res = await fetch('/api/demo/force-failure', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({panel_id: id})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); mudarAba('realtime'); } else { alert("Erro ao simular falha."); }
+        }
+
+        async function alterarPlano(novoPlano) {
+            const res = await fetch('/api/tenant/upgrade-plan', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({plan_name: novoPlano})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); } else { alert("Erro ao atualizar plano."); }
+        }
+
+        async function salvarWebhook(event) {
+            event.preventDefault();
+            const url = document.getElementById('webhook-url-input').value.trim();
+            const res = await fetch('/api/tenant/webhook', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenJwt}`},
+                body: JSON.stringify({webhook_url: url})
+            });
+            const d = await res.json();
+            if(res.ok) { alert(d.message); } else { alert("Erro ao salvar webhook."); }
+        }
+
+        async function baixarRelatorioExecutivo() {
+            const res = await fetch('/api/
