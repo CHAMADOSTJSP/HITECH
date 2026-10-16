@@ -5,7 +5,7 @@ import hashlib
 import httpx
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -100,7 +100,7 @@ class UserModel(Base):
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Master Hub")
+app = FastAPI(title="HITECH VoltGuard SCADA Enterprise - Master Core")
 
 class ConnectionManager:
     def __init__(self):
@@ -180,7 +180,7 @@ def init_db():
             db.add(TenantSubscriptionModel(tenant_id="HITECH-DEFAULT", plan_name="Enterprise", status="ACTIVE", max_panels=25, webhook_url="https://httpbin.org/post"))
             db.add(WorkOrderModel(tenant_id="HITECH-DEFAULT", panel_id="PANEL-02", title="Substituição de Contator QGBT", priority="CRITICA", status="EM_ANDAMENTO", assigned_technician="TecnicoMarcos", description="Sobreaquecimento detetado."))
             db.add(InventoryModel(tenant_id="HITECH-DEFAULT", part_name="Contator Geral 400A", category="Comutação", quantity_in_stock=4, min_threshold=2, unit_cost=450.0))
-            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema completo e revisto inicializado."))
+            db.add(AuditLogModel(tenant_id="HITECH-DEFAULT", user_name="RafaelFelipe", role="CEO", action="INICIALIZACAO", details="Sistema verificado e inicializado com sucesso."))
             
         db.commit()
     except Exception as e:
@@ -255,6 +255,38 @@ def save_webhook(data: dict, db: Session = Depends(get_db), current_user: User =
         sub.webhook_url = webhook_url
         db.commit()
     return {"status": "success", "message": "URL de Webhook guardada com sucesso!"}
+
+@app.post("/api/panels/add")
+def add_panel(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role not in ["CEO", "Gerente"]:
+        raise HTTPException(status_code=403, detail="Acesso restrito para adicionar painéis.")
+    
+    panel_id = data.get("id", "").strip().upper()
+    name = data.get("name", "").strip()
+    location = data.get("location", "").strip()
+    voltage = data.get("voltage", "380V AC").strip()
+    component = data.get("component", "Disjuntor Principal").strip()
+    gateway_qr = data.get("gateway_qr", f"QR-GW-{random.randint(2000,9999)}").strip()
+
+    if not panel_id or not name or not location:
+        raise HTTPException(status_code=400, detail="Preencha os campos obrigatórios do painel.")
+
+    existing = db.query(PanelModel).filter(PanelModel.id == panel_id, PanelModel.tenant_id == current_user.tenant_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe um painel com este ID na organização.")
+
+    new_panel = PanelModel(
+        id=panel_id, tenant_id=current_user.tenant_id, name=name, location=location,
+        voltage=voltage, current=round(random.uniform(100.0, 400.0), 2),
+        temperature=round(random.uniform(45.0, 68.0), 2), gateway_qr=gateway_qr,
+        status="NORMAL", component=component, predictive_failure_hours=180,
+        recommendation="Painel recém-comissionado. Operação estável.", esg_waste_kwh=1.0
+    )
+    db.add(new_panel)
+    db.add(PanelHistoryModel(panel_id=panel_id, timestamp=datetime.utcnow().strftime("%H:%M"), temperature=new_panel.temperature))
+    db.add(AuditLogModel(tenant_id=current_user.tenant_id, user_name=current_user.username, role=current_user.role, action="ADICIONAR_PAINEL", details=f"Painel {panel_id} adicionado."))
+    db.commit()
+    return {"status": "success", "message": f"Painel {panel_id} adicionado com sucesso!"}
 
 @app.post("/api/demo/force-failure")
 async def force_failure(data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
